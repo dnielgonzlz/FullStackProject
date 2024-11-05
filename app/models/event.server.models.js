@@ -7,31 +7,6 @@
 //TODO: GET - Search for an event
 const Joi = require('joi');
 
-const getAllEvents = (done) => {
-    const sql = 'SELECT * FROM events'
-
-    const errors = []
-    const results = []
-
-    db.each(
-        sql,
-        [],
-        (err,row) => {
-            if(err) errors.push(err)
-
-                results.push({
-                    event_id: row.event_id,
-                    event_name: row.event_name,
-                    // movie_year: row.movie_year,
-                    // movie_director: row.movie_director
-                })
-        },
-        (err, num_rows) => {
-            return done(err, num_rows, results)
-        }
-    )
-}
-
 const createEvent = (event, done) => {
     const sql = `INSERT INTO events (name, description, location, start, close_registration, max_attendees)
                  VALUES (?, ?, ?, ?, ?, ?)`;
@@ -52,33 +27,7 @@ const createEvent = (event, done) => {
     });
 };
 
-const getEvent = (event_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        event_id: Joi.number().integer().required()
-    });
-
-    // Validate input
-    const { error } = inputSchema.validate({ event_id });
-    if (error) {
-        return done(error);
-    }
-
-    // Output validation schema
-    const eventDetailsSchema = Joi.object({
-        event_id: Joi.number().integer().required(),
-        creator: Joi.object().required(),  // Assuming creator is an object with user details
-        name: Joi.string().required(),
-        description: Joi.string().required(),
-        location: Joi.string().required(),
-        start: Joi.number().integer().required(),
-        close_registration: Joi.number().integer().required(),
-        max_attendees: Joi.number().integer().required(),
-        number_attending: Joi.number().integer().required(),
-        attendees: Joi.array().items(Joi.object()).required(),  // Array of attendee objects
-        questions: Joi.array().items(Joi.object()).required()   // Array of question objects
-    });
-
+const getEventFromDB = (event_id, callback) => {
     const sql = `
         SELECT 
             e.*,
@@ -111,11 +60,11 @@ const getEvent = (event_id, done) => {
     
     db.get(sql, params, (err, row) => {
         if (err) {
-            return done(err);
+            return callback(err);
         }
         
         if (!row) {
-            return done(new Error('Event not found'));
+            return callback(new Error('Event not found'));
         }
 
         // Parse JSON strings if using SQLite
@@ -127,70 +76,14 @@ const getEvent = (event_id, done) => {
                 row.questions = JSON.parse(row.questions);
             }
         } catch (parseErr) {
-            return done(parseErr);
+            return callback(parseErr);
         }
 
-        // Validate the output against the schema
-        const { error: validationError, value } = eventDetailsSchema.validate(row);
-        if (validationError) {
-            return done(validationError);
-        }
-
-        return done(null, value);
+        return callback(null, row);
     });
 };
 
-const updateEvent = (event_id, event, done) => {
-    // Input validation schemas
-    const paramsSchema = Joi.object({
-        event_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-    });
-
-    const eventUpdateSchema = Joi.object({
-        name: Joi.string()
-            .required()
-            .example('NodeJS developer meetup Manchester'),
-
-        description: Joi.string()
-            .required()
-            .example('Our regular monthly catch-up to discuss all things Node'),
-
-        location: Joi.string()
-            .required()
-            .example('Federal Cafe and Bar'),
-
-        start: Joi.number()
-            .integer()
-            .required()
-            .example(89983256),
-
-        close_registration: Joi.number()
-            .integer()
-            .required()
-            .example(89983256),
-
-        max_attendees: Joi.number()
-            .integer()
-            .required()
-            .min(1)
-            .example(20)
-    });
-
-    // Validate event_id
-    const { error: idError } = paramsSchema.validate({ event_id });
-    if (idError) {
-        return done(idError);
-    }
-
-    // Validate event update data
-    const { error: eventError, value: validatedEvent } = eventUpdateSchema.validate(event);
-    if (eventError) {
-        return done(eventError);
-    }
-
+const updateEventInDB = (event_id, validatedEvent, callback) => {
     const sql = `
         UPDATE events 
         SET name = ?, 
@@ -213,14 +106,14 @@ const updateEvent = (event_id, event, done) => {
     
     db.run(sql, params, function(err) {
         if (err) {
-            return done(err);
+            return callback(err);
         }
 
         if (this.changes === 0) {
-            return done(new Error('Event not found or no changes made'));
+            return callback(new Error('Event not found or no changes made'));
         }
 
-        return done(null, { 
+        return callback(null, { 
             success: true,
             event_id: event_id,
             changes: this.changes
@@ -229,26 +122,7 @@ const updateEvent = (event_id, event, done) => {
 };
 
 
-const registerAttendance = (event_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        event_id: Joi.number()
-            .integer()
-            .required()
-            .positive(),
-        user_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-    });
-
-    // Validate inputs
-    const { error } = inputSchema.validate({ event_id, user_id });
-    if (error) {
-        return done(error);
-    }
-
-    // Use a transaction to ensure data consistency
+const registerAttendanceInDB = (event_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -263,12 +137,12 @@ const registerAttendance = (event_id, user_id, done) => {
         db.get(eventCheckSql, [event_id], (err, event) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done(err);
+                return callback(err);
             }
 
             if (!event) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 404,
                     error_message: 'Event not found'
                 });
@@ -277,7 +151,7 @@ const registerAttendance = (event_id, user_id, done) => {
             // Check if registration is closed
             if (event.close_registration <= Date.now()) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 403,
                     error_message: 'Registration is closed'
                 });
@@ -286,7 +160,7 @@ const registerAttendance = (event_id, user_id, done) => {
             // Check if event is at capacity
             if (event.current_attendees >= event.max_attendees) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 403,
                     error_message: 'Event is at capacity'
                 });
@@ -300,12 +174,12 @@ const registerAttendance = (event_id, user_id, done) => {
             db.get(duplicateCheckSql, [event_id, user_id], (err, existing) => {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done(err);
+                    return callback(err);
                 }
 
                 if (existing) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 403,
                         error_message: 'You are already registered'
                     });
@@ -319,7 +193,7 @@ const registerAttendance = (event_id, user_id, done) => {
                 db.run(insertSql, [event_id, user_id, Date.now()], function(err) {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to register for event'
                         });
@@ -328,14 +202,14 @@ const registerAttendance = (event_id, user_id, done) => {
                     db.run('COMMIT', (err) => {
                         if (err) {
                             db.run('ROLLBACK');
-                            return done({
+                            return callback({
                                 status: 500,
                                 error_message: 'Failed to commit transaction'
                             });
                         }
 
                         // Successfully registered
-                        return done(null, {
+                        return callback(null, {
                             status: 200,
                             event_id: event_id,
                             user_id: user_id,
@@ -348,34 +222,7 @@ const registerAttendance = (event_id, user_id, done) => {
     });
 };
 
-const deleteEvent = (event_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        event_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'Event ID must be a number',
-                'number.integer': 'Event ID must be an integer',
-                'any.required': 'Event ID is required'
-            }),
-        user_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-    });
-
-    // Validate input
-    const { error } = inputSchema.validate({ event_id, user_id });
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
-        });
-    }
-
-    // Use a transaction to ensure data consistency
+const deleteEventFromDB = (event_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -388,7 +235,7 @@ const deleteEvent = (event_id, user_id, done) => {
         db.get(checkEventSql, [event_id], (err, event) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 500,
                     error_message: 'Database error while checking event'
                 });
@@ -396,7 +243,7 @@ const deleteEvent = (event_id, user_id, done) => {
 
             if (!event) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 404,
                     error_message: 'Event not found'
                 });
@@ -405,7 +252,7 @@ const deleteEvent = (event_id, user_id, done) => {
             // Check if the user is the creator of the event
             if (event.creator_id !== user_id) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 403,
                     error_message: 'You can only delete your own events'
                 });
@@ -417,7 +264,7 @@ const deleteEvent = (event_id, user_id, done) => {
             db.run(deleteSql, [event_id], function(err) {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 500,
                         error_message: 'Failed to delete event'
                     });
@@ -425,7 +272,7 @@ const deleteEvent = (event_id, user_id, done) => {
 
                 if (this.changes === 0) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 404,
                         error_message: 'Event not found'
                     });
@@ -434,14 +281,14 @@ const deleteEvent = (event_id, user_id, done) => {
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to commit transaction'
                         });
                     }
 
                     // Successfully deleted
-                    return done(null, {
+                    return callback(null, {
                         status: 200,
                         message: 'Event successfully deleted'
                     });

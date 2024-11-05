@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ash-williams/fsd_eventitude_starter.git"
+    "url": "git+https://github.com/dnielgonzlz/FullStackProject.git"
   },
   "keywords": [
     "eventitude",
@@ -23,9 +23,9 @@
   "author": "Ash Williams",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/ash-williams/fsd_eventitude_starter/issues"
+    "url": "https://github.com/dnielgonzlz/FullStackProject/issues"
   },
-  "homepage": "https://github.com/ash-williams/fsd_eventitude_starter#readme",
+  "homepage": "https://github.com/dnielgonzlz/FullStackProject#readme",
   "dependencies": {
     "body-parser": "^1.20.2",
     "chai": "^4.3.8",
