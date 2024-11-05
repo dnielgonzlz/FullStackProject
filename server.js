@@ -6,6 +6,9 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
+app.use(morgan('tiny'));
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
 // Server port
 const HTTP_PORT = 3333;
@@ -15,12 +18,6 @@ app.listen(HTTP_PORT, () => {
     console.log('Server running on port: ' + HTTP_PORT);
 });
 
-// Logging
-app.use(morgan('tiny'));
-
-// Body parser
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
 
 // Root endpoint
 app.get('/', (req, res, next) => {
@@ -30,8 +27,8 @@ app.get('/', (req, res, next) => {
 // Other API endpoints: Links go here...
 // You can uncomment the below four lines as you implement the functionality - we'll discuss this structure in week three.
 require('./app/routes/user.server.routes')(app);
-// require('./app/routes/event.server.routes')(app);
-// require('./app/routes/question.server.routes')(app);
+require('./app/routes/event.server.routes')(app);
+require('./app/routes/question.server.routes')(app);
 
 
 // Default response for any other request

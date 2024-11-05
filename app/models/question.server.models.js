@@ -1,50 +1,7 @@
-//TODO: I need to build here the queries for SQLite for each of the operations
-//TODO: POST - Ask a question about an event
-//TODO: DELETE - Delete a question
-//TODO: POST - Upvote a question
-//TODO: DELETE - Downvote a question
-
-
 const Joi = require('joi');
+const db = require('../../database');
 
-const askQuestion = (event_id, user_id, questionData, done) => {
-    // Input validation schemas
-    const inputSchema = Joi.object({
-        event_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'Event ID must be a number',
-                'number.integer': 'Event ID must be an integer',
-                'any.required': 'Event ID is required'
-            }),
-        question: Joi.string()
-            .required()
-            .min(5)
-            .max(500)
-            .trim()
-            .messages({
-                'string.empty': 'Question cannot be empty',
-                'string.min': 'Question must be at least 5 characters long',
-                'string.max': 'Question cannot exceed 500 characters'
-            })
-    });
-
-    // Validate input
-    const { error, value } = inputSchema.validate({
-        event_id: event_id,
-        question: questionData.question
-    });
-
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
-        });
-    }
-
-    // Use a transaction to ensure data consistency
+const askQuestionInDB = (event_id, user_id, question, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -66,7 +23,7 @@ const askQuestion = (event_id, user_id, questionData, done) => {
         db.get(checkAccessSql, [event_id, user_id, user_id], (err, hasAccess) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 500,
                     error_message: 'Database error while checking access'
                 });
@@ -74,7 +31,7 @@ const askQuestion = (event_id, user_id, questionData, done) => {
 
             if (!hasAccess) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 403,
                     error_message: 'You cannot ask questions on events you are not registered for or your own events'
                 });
@@ -91,7 +48,7 @@ const askQuestion = (event_id, user_id, questionData, done) => {
                 ) VALUES (?, ?, ?, 0, ?)`;
 
             const params = [
-                value.question,
+                question,
                 user_id,
                 event_id,
                 Date.now()
@@ -100,7 +57,7 @@ const askQuestion = (event_id, user_id, questionData, done) => {
             db.run(insertSql, params, function(err) {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 500,
                         error_message: 'Failed to create question'
                     });
@@ -109,14 +66,14 @@ const askQuestion = (event_id, user_id, questionData, done) => {
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to commit transaction'
                         });
                     }
 
                     // Successfully created
-                    return done(null, {
+                    return callback(null, {
                         status: 201,
                         question_id: this.lastID
                     });
@@ -126,30 +83,7 @@ const askQuestion = (event_id, user_id, questionData, done) => {
     });
 };
 
-const deleteQuestion = (question_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        question_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'Question ID must be a number',
-                'number.integer': 'Question ID must be an integer',
-                'any.required': 'Question ID is required'
-            })
-    });
-
-    // Validate input
-    const { error } = inputSchema.validate({ question_id });
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
-        });
-    }
-
-    // Use a transaction to ensure data consistency
+const deleteQuestionFromDB = (question_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -163,7 +97,7 @@ const deleteQuestion = (question_id, user_id, done) => {
         db.get(checkPermissionSql, [question_id], (err, row) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 500,
                     error_message: 'Database error while checking permissions'
                 });
@@ -171,7 +105,7 @@ const deleteQuestion = (question_id, user_id, done) => {
 
             if (!row) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 404,
                     error_message: 'Question not found'
                 });
@@ -180,7 +114,7 @@ const deleteQuestion = (question_id, user_id, done) => {
             // Check if user is either the question author or the event creator
             if (row.asked_by !== user_id && row.creator_id !== user_id) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 403,
                     error_message: 'You can only delete questions that you have authored, or for events that you have created'
                 });
@@ -192,7 +126,7 @@ const deleteQuestion = (question_id, user_id, done) => {
             db.run(deleteSql, [question_id], function(err) {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 500,
                         error_message: 'Failed to delete question'
                     });
@@ -200,7 +134,7 @@ const deleteQuestion = (question_id, user_id, done) => {
 
                 if (this.changes === 0) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 404,
                         error_message: 'Question not found'
                     });
@@ -209,14 +143,14 @@ const deleteQuestion = (question_id, user_id, done) => {
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to commit transaction'
                         });
                     }
 
                     // Successfully deleted
-                    return done(null, {
+                    return callback(null, {
                         status: 200,
                         message: 'Question successfully deleted'
                     });
@@ -226,30 +160,7 @@ const deleteQuestion = (question_id, user_id, done) => {
     });
 };
 
-const upvoteQuestion = (question_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        question_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'Question ID must be a number',
-                'number.integer': 'Question ID must be an integer',
-                'any.required': 'Question ID is required'
-            })
-    });
-
-    // Validate input
-    const { error } = inputSchema.validate({ question_id });
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
-        });
-    }
-
-    // Use a transaction to ensure data consistency
+const upvoteQuestionInDB = (question_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -262,7 +173,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
         db.get(checkQuestionSql, [question_id], (err, question) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 500,
                     error_message: 'Database error while checking question'
                 });
@@ -270,7 +181,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
 
             if (!question) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 404,
                     error_message: 'Question not found'
                 });
@@ -285,7 +196,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
             db.get(checkVoteSql, [question_id, user_id], (err, existingVote) => {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 500,
                         error_message: 'Database error while checking vote'
                     });
@@ -293,7 +204,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
 
                 if (existingVote) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 403,
                         error_message: 'You have already voted on this question'
                     });
@@ -310,7 +221,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
                 db.run(insertVoteSql, [question_id, user_id, Date.now()], (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to record vote'
                         });
@@ -325,7 +236,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
                     db.run(updateVotesSql, [question_id], function(err) {
                         if (err) {
                             db.run('ROLLBACK');
-                            return done({
+                            return callback({
                                 status: 500,
                                 error_message: 'Failed to update vote count'
                             });
@@ -333,7 +244,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
 
                         if (this.changes === 0) {
                             db.run('ROLLBACK');
-                            return done({
+                            return callback({
                                 status: 404,
                                 error_message: 'Question not found'
                             });
@@ -342,14 +253,14 @@ const upvoteQuestion = (question_id, user_id, done) => {
                         db.run('COMMIT', (err) => {
                             if (err) {
                                 db.run('ROLLBACK');
-                                return done({
+                                return callback({
                                     status: 500,
                                     error_message: 'Failed to commit transaction'
                                 });
                             }
 
                             // Successfully voted
-                            return done(null, {
+                            return callback(null, {
                                 status: 200,
                                 message: 'Vote recorded successfully',
                                 question_id: question_id
@@ -362,30 +273,7 @@ const upvoteQuestion = (question_id, user_id, done) => {
     });
 };
 
-const downvoteQuestion = (question_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        question_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'Question ID must be a number',
-                'number.integer': 'Question ID must be an integer',
-                'any.required': 'Question ID is required'
-            })
-    });
-
-    // Validate input
-    const { error } = inputSchema.validate({ question_id });
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
-        });
-    }
-
-    // Use a transaction to ensure data consistency
+const downvoteQuestionInDB = (question_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -398,7 +286,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
         db.get(checkQuestionSql, [question_id], (err, question) => {
             if (err) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 500,
                     error_message: 'Database error while checking question'
                 });
@@ -406,7 +294,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
 
             if (!question) {
                 db.run('ROLLBACK');
-                return done({
+                return callback({
                     status: 404,
                     error_message: 'Question not found'
                 });
@@ -421,7 +309,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
             db.get(checkVoteSql, [question_id, user_id], (err, existingVote) => {
                 if (err) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 500,
                         error_message: 'Database error while checking vote'
                     });
@@ -429,7 +317,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
 
                 if (!existingVote) {
                     db.run('ROLLBACK');
-                    return done({
+                    return callback({
                         status: 403,
                         error_message: 'You have not voted on this question'
                     });
@@ -443,7 +331,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
                 db.run(deleteVoteSql, [question_id, user_id], (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done({
+                        return callback({
                             status: 500,
                             error_message: 'Failed to remove vote'
                         });
@@ -458,7 +346,7 @@ const downvoteQuestion = (question_id, user_id, done) => {
                     db.run(updateVotesSql, [question_id], function(err) {
                         if (err) {
                             db.run('ROLLBACK');
-                            return done({
+                            return callback({
                                 status: 500,
                                 error_message: 'Failed to update vote count'
                             });
@@ -467,14 +355,14 @@ const downvoteQuestion = (question_id, user_id, done) => {
                         db.run('COMMIT', (err) => {
                             if (err) {
                                 db.run('ROLLBACK');
-                                return done({
+                                return callback({
                                     status: 500,
                                     error_message: 'Failed to commit transaction'
                                 });
                             }
 
                             // Successfully downvoted
-                            return done(null, {
+                            return callback(null, {
                                 status: 200,
                                 message: 'Vote removed successfully',
                                 question_id: question_id

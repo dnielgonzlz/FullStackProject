@@ -1,11 +1,5 @@
-//TODO: I need to build here the queries for SQLite for each of the operations
-//TODO: POST - Create a new event
-//TODO: GET - Get a single event detail
-//TODO: PATCH - Update a single event
-//TODO: POST - Register to attend an event
-//TODO: DELETE - Delete an event
-//TODO: GET - Search for an event
 const Joi = require('joi');
+const db = require('../../database');
 
 const createEvent = (event, done) => {
     const sql = `INSERT INTO events (name, description, location, start, close_registration, max_attendees)
