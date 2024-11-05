@@ -35,7 +35,6 @@ const createUser = (user, done) => {
             .pattern(/.*@.*\.ac\.uk$/)
             .messages({
                 'string.email': 'Please provide a valid email address',
-                'string.pattern.base': 'Email must be an academic email address (.ac.uk)',
                 'string.empty': 'Email is required'
             }),
 
@@ -95,7 +94,6 @@ const loginUser = (credentials, done) => {
             .pattern(/.*@.*\.ac\.uk$/)
             .messages({
                 'string.email': 'Please provide a valid email address',
-                'string.pattern.base': 'Email must be an academic email address (.ac.uk)',
                 'string.empty': 'Email is required'
             }),
             
@@ -259,4 +257,72 @@ const logoutUser = (user_id, session_token, done) => {
             });
         });
     });
+};
+
+/**
+* User Authentication Module
+* @module authentication
+*/
+
+/**
+* @typedef {Object} User
+* @property {number} user_id - Unique identifier for the user
+* @property {string} first_name - User's first name
+* @property {string} last_name - User's last name
+* @property {string} email - User's email address
+* @property {string} password - User's password (will be hashed)
+*/
+
+/**
+* @typedef {Object} LoginCredentials
+* @property {string} email - User's email address
+* @property {string} password - User's password
+*/
+
+/**
+* Hash password with salt using PBKDF2
+* @private
+* @param {string} password - The password to hash
+* @param {Buffer} salt - The salt for hashing
+* @returns {string} - The hashed password as hex string
+*/
+ 
+ module.exports = {
+    /** 
+     * Create a new user account
+     * @function createUser
+     * @param {User} user - User data for account creation
+     * @param {function} done - Callback function
+     * @returns {Object} - Contains user_id if successful
+     * @throws {Error} - If email already exists or validation fails
+     */
+    createUser,
+ 
+    /** 
+     * Log in an existing user
+     * @function loginUser
+     * @param {LoginCredentials} credentials - Login credentials
+     * @param {function} done - Callback function
+     * @returns {Object} - Contains user_id and session_token if successful
+     * @throws {Error} - If credentials are invalid
+     */
+    loginUser,
+ 
+    /** 
+     * Log out a user
+     * @function logoutUser
+     * @param {number} user_id - ID of user to log out
+     * @param {string} session_token - Current session token
+     * @param {function} done - Callback function
+     * @returns {Object} - Status message
+     * @throws {Error} - If session is invalid or user is not found
+     */
+    logoutUser
+ };
+ 
+ // User Authentication Module
+module.exports = {
+    createUser,    // Create new user account
+    loginUser,     // Log in existing user
+    logoutUser     // Log out user and invalidate session
 };
