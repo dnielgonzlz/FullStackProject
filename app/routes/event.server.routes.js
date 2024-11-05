@@ -1,4 +1,4 @@
-const users = require('../controllers/event.server.controllers');
+const events = require('../controllers/event.server.controllers');
 
 // TODO: Test POST Create New Event POSTMAN
 // TODO: Test GET Get a Single Event Details POSTMAN

@@ -1,4 +1,4 @@
-const users = require('../controllers/question.server.controllers');
+const questions = require('../controllers/question.server.controllers');
 
 // TODO: Test POST Ask a Question About An Event POSTMAN
 // TODO: Test DELETE Delete a Question POSTMAN
