@@ -1,7 +1,90 @@
+const Joi = require('joi');
+const events = require('../models/event.server.models');
+
 // Create a New Event
 const create_event = (req, res) => {
-    return res.sendStatus(500);
-}
+    console.log('🚀 EVENT: Starting event creation process');
+
+    // Input validation schema
+    const eventSchema = Joi.object({
+        name: Joi.string()
+            .required()
+            .messages({
+                'string.empty': 'Event name is required'
+            }),
+        description: Joi.string()
+            .required()
+            .messages({
+                'string.empty': 'Event description is required'
+            }),
+        location: Joi.string()
+            .required()
+            .messages({
+                'string.empty': 'Event location is required'
+            }),
+        start_date: Joi.number()
+            .integer()
+            .required()
+            .messages({
+                'number.base': 'Start time must be a timestamp',
+                'any.required': 'Start time is required'
+            }),
+        close_registration: Joi.number()
+            .integer()
+            .required()
+            .messages({
+                'number.base': 'Registration close time must be a timestamp',
+                'any.required': 'Registration close time is required'
+            }),
+        max_attendees: Joi.number()
+            .integer()
+            .min(1)
+            .required()
+            .messages({
+                'number.base': 'Maximum attendees must be a number',
+                'number.min': 'Maximum attendees must be at least 1',
+                'any.required': 'Maximum attendees is required'
+            })
+    });
+
+    // Validate input
+    const { error } = eventSchema.validate(req.body);
+    if (error) {
+        console.log('❌ EVENT: Validation failed:', error.details[0].message);
+        return res.status(400).json({
+            error_message: error.details[0].message
+        });
+    }
+
+    console.log('✅ EVENT: Input validation passed');
+
+    // Create event object from validated request body
+    const event = {
+        name: req.body.name,
+        description: req.body.description,
+        location: req.body.location,
+        start_date: req.body.start_date,
+        close_registration: req.body.close_registration,
+        max_attendees: req.body.max_attendees
+    };
+
+    console.log('📝 EVENT: Created event object:', event);
+
+    // Call the model function
+    events.createEventInDB(event, (err, result) => {
+        if (err) {
+            console.log('❌ EVENT: Database error:', err);
+            return res.status(500).json({
+                error_message: 'Failed to create event'
+            });
+        }
+        
+        console.log('✅ EVENT: Successfully created event with ID:', result.event_id);
+        return res.status(201).json({
+            event_id: result.event_id
+        });
+    });
+};
 
 // Get a single event details
 const get_event = (event_id, done) => {
@@ -23,7 +106,7 @@ const get_event = (event_id, done) => {
         name: Joi.string().required(),
         description: Joi.string().required(),
         location: Joi.string().required(),
-        start: Joi.number().integer().required(),
+        start_date: Joi.number().integer().required(),
         close_registration: Joi.number().integer().required(),
         max_attendees: Joi.number().integer().required(),
         number_attending: Joi.number().integer().required(),
@@ -69,7 +152,7 @@ const update_single_event = (event_id, event, done) => {
             .required()
             .example('Federal Cafe and Bar'),
 
-        start: Joi.number()
+        start_date: Joi.number()
             .integer()
             .required()
             .example(89983256),

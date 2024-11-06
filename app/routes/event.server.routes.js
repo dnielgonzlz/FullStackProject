@@ -1,6 +1,7 @@
 const events = require('../controllers/event.server.controllers');
+const authenticate = require('../lib/authentication');
 
-// TODO: Test POST Create New Event POSTMAN
+// NOTE: Create New Event has been successfully implemented
 // TODO: Test GET Get a Single Event Details POSTMAN
 // TODO: Test PATCH Update Event POSTMAN
 // TODO: Test POST Register to Attend An Event POSTMAN
@@ -9,7 +10,7 @@ const events = require('../controllers/event.server.controllers');
 
 module.exports = function(app){
     app.route('/events')
-        .post();
+        .post(authenticate, events.create_event);
     
     app.route('/event/{event_id}:')
         .get()

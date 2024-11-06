@@ -1,14 +1,14 @@
 const Joi = require('joi');
 const db = require('../../database');
 
-const createEvent = (event, done) => {
-    const sql = `INSERT INTO events (name, description, location, start, close_registration, max_attendees)
+const createEventInDB = (event, done) => {
+    const sql = `INSERT INTO events (name, description, location, start_date, close_registration, max_attendees)
                  VALUES (?, ?, ?, ?, ?, ?)`;
     const params = [
         event.name,               // string: "NodeJS developer meetup Manchester"
         event.description,        // string: "Our regular monthly catch-up..."
         event.location,           // string: "Federal Cafe and Bar"
-        event.start,             // integer: 89983256
+        event.start_date,             // integer: 89983256
         event.close_registration, // integer: 89983256
         event.max_attendees      // integer: 20
     ];
@@ -92,7 +92,7 @@ const updateEventInDB = (event_id, validatedEvent, callback) => {
         validatedEvent.name,
         validatedEvent.description,
         validatedEvent.location,
-        validatedEvent.start,
+        validatedEvent.start_date,
         validatedEvent.close_registration,
         validatedEvent.max_attendees,
         event_id
@@ -335,7 +335,7 @@ const searchEvents = (params, user_id, done) => {
             e.name,
             e.description,
             e.location,
-            e.start,
+            e.start_date,
             e.close_registration,
             e.max_attendees,
             json_object(
@@ -349,7 +349,7 @@ const searchEvents = (params, user_id, done) => {
         WHERE 1=1
     `;
     
-    const params = [];
+    const queryParams = [];
 
     // Add search condition if query provided
     if (value.q) {
@@ -358,14 +358,14 @@ const searchEvents = (params, user_id, done) => {
             e.description LIKE ? OR 
             e.location LIKE ?
         )`;
-        params.push(`%${value.q}%`, `%${value.q}%`, `%${value.q}%`);
+        queryParams.push(`%${value.q}%`, `%${value.q}%`, `%${value.q}%`);
     }
 
     // Add status conditions
     switch (value.status) {
         case 'MY_EVENTS':
             sql += ` AND e.creator_id = ?`;
-            params.push(user_id);
+            queryParams.push(user_id);
             break;
         case 'ATTENDING':
             sql += ` AND EXISTS (
@@ -373,23 +373,23 @@ const searchEvents = (params, user_id, done) => {
                 WHERE a.event_id = e.event_id 
                 AND a.user_id = ?
             )`;
-            params.push(user_id);
+            queryParams.push(user_id);
             break;
         case 'OPEN':
             sql += ` AND e.close_registration > ?`;
-            params.push(Date.now());
+            queryParams.push(Date.now());
             break;
         case 'ARCHIVE':
             sql += ` AND e.close_registration < ?`;
-            params.push(Date.now());
+            queryParams.push(Date.now());
             break;
     }
 
     // Add pagination
-    sql += ` ORDER BY e.start DESC LIMIT ? OFFSET ?`;
-    params.push(value.limit, value.offset);
+    sql += ` ORDER BY e.start_date DESC LIMIT ? OFFSET ?`;
+    queryParams.push(value.limit, value.offset);
 
-    db.all(sql, params, (err, rows) => {
+    db.all(sql, queryParams, (err, rows) => {
         if (err) {
             return done({
                 status: 500,
@@ -427,16 +427,16 @@ const searchEvents = (params, user_id, done) => {
  * @property {string} name - Name of the event
  * @property {string} description - Description of the event
  * @property {string} location - Location of the event
- * @property {number} start - Start timestamp
+ * @property {number} start_date - Start timestamp
  * @property {number} close_registration - Registration closing timestamp
  * @property {number} max_attendees - Maximum number of attendees
  */
 
 module.exports = {
-    createEvent,      // Create a new event
-    getEvent,        // Get event details by ID
-    updateEvent,     // Update an existing event
-    registerAttendance, // Register user for event
-    deleteEvent,     // Delete an event
+    createEventInDB,      // Create a new event
+    getEventFromDB,        // Get event details by ID
+    updateEventInDB,     // Update an existing event
+    registerAttendanceInDB, // Register user for event
+    deleteEventFromDB,     // Delete an event
     searchEvents     // Search and filter events
 };
