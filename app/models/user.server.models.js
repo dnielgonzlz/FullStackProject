@@ -123,7 +123,10 @@ const loginUserInDB = (credentials, callback) => {
     });
 };
 
+// In user.server.models.js
 const logoutUserInDB = (user_id, session_token, callback) => {
+    console.log('🔍 DB: Starting logout process for user:', user_id);
+
     // First verify that the session token matches
     const checkSessionSql = `
         SELECT 1 
@@ -133,6 +136,7 @@ const logoutUserInDB = (user_id, session_token, callback) => {
 
     db.get(checkSessionSql, [user_id, session_token], (err, validSession) => {
         if (err) {
+            console.error('❌ DB: Error checking session:', err);
             return callback({
                 status: 500,
                 error_message: 'Database error while checking session'
@@ -140,22 +144,25 @@ const logoutUserInDB = (user_id, session_token, callback) => {
         }
 
         if (!validSession) {
+            console.log('❌ DB: Invalid session for user:', user_id);
             return callback({
                 status: 401,
                 error_message: 'Invalid session'
             });
         }
 
+        console.log('✅ DB: Session verified, proceeding with logout');
+
         // Clear the session token
         const logoutSql = `
             UPDATE users 
-            SET session_token = NULL,
-                last_logout = ?
+            SET session_token = NULL
             WHERE user_id = ? 
             AND session_token = ?`;
 
-        db.run(logoutSql, [Date.now(), user_id, session_token], function(err) {
+        db.run(logoutSql, [user_id, session_token], function(err) {
             if (err) {
+                console.error('❌ DB: Error during logout:', err);
                 return callback({
                     status: 500,
                     error_message: 'Failed to log out user'
@@ -163,12 +170,14 @@ const logoutUserInDB = (user_id, session_token, callback) => {
             }
 
             if (this.changes === 0) {
+                console.log('❌ DB: No rows updated during logout');
                 return callback({
                     status: 401,
                     error_message: 'Logout failed'
                 });
             }
 
+            console.log('✅ DB: Successfully logged out user:', user_id);
             return callback(null, {
                 status: 200,
                 message: 'Successfully logged out'

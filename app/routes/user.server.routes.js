@@ -12,5 +12,5 @@ module.exports = function(app){
         .post(users.login);
 
     app.route('/logout')
-        .post();
+        .post(authenticate, users.logout);
 }

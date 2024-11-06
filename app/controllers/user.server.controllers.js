@@ -144,40 +144,36 @@ const login = (req, res) => {
     });
 };
 
-const logout = (user_id, session_token, done) => {
-    // Input validation schema
-    const logoutSchema = Joi.object({
-        user_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-            .messages({
-                'number.base': 'User ID must be a number',
-                'number.integer': 'User ID must be an integer',
-                'any.required': 'User ID is required'
-            }),
-        session_token: Joi.string()
-            .required()
-            .hex()
-            .length(32) // Since we're using randomBytes(16).toString('hex')
-            .messages({
-                'string.empty': 'Session token is required',
-                'string.hex': 'Invalid session token format',
-                'string.length': 'Invalid session token length'
-            })
-    });
-
-    // Validate input
-    const { error } = logoutSchema.validate({ user_id, session_token });
-    if (error) {
-        return done({
-            status: 400,
-            error_message: error.details[0].message
+const logout = (req, res) => {
+    console.log('🚀 LOGOUT: Starting logout process');
+    
+    // Get token from authorization header
+    const token = req.headers['x-authorization'];
+    if (!token) {
+        console.log('❌ LOGOUT: No token provided');
+        return res.status(401).json({
+            error_message: 'Unauthorized'
         });
     }
 
-    logoutUserInDB(user_id, session_token, done);
+    // Get user_id from authenticate middleware
+    const user_id = req.user_id;
+
+    users.logoutUserInDB(user_id, token, (err, result) => {
+        if (err) {
+            console.log('❌ LOGOUT: Error during logout:', err);
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        console.log('✅ LOGOUT: Successfully logged out user:', user_id);
+        return res.status(200).json({
+            message: 'User logged out successfully'
+        });
+    });
 };
+
+
 
 const getToken = (req, res) => {
     // Input validation schema
