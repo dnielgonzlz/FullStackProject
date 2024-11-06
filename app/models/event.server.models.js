@@ -1,16 +1,25 @@
 const Joi = require('joi');
 const db = require('../../database');
 
-const createEventInDB = (event, done) => {
-    const sql = `INSERT INTO events (name, description, location, start_date, close_registration, max_attendees)
-                 VALUES (?, ?, ?, ?, ?, ?)`;
+const createEventInDB = (event, creator_id, done) => {
+    const sql = `INSERT INTO events (
+        name, 
+        description, 
+        location, 
+        start_date, 
+        close_registration, 
+        max_attendees,
+        creator_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
     const params = [
         event.name,               // string: "NodeJS developer meetup Manchester"
         event.description,        // string: "Our regular monthly catch-up..."
         event.location,           // string: "Federal Cafe and Bar"
         event.start_date,             // integer: 89983256
         event.close_registration, // integer: 89983256
-        event.max_attendees      // integer: 20
+        event.max_attendees,      // integer: 20
+        creator_id
     ];
     
     db.run(sql, params, function(err) {
@@ -22,29 +31,52 @@ const createEventInDB = (event, done) => {
 };
 
 const getEventFromDB = (event_id, callback) => {
+    console.log('🔍 DB: Starting database query for event ID:', event_id);
+
     const sql = `
         SELECT 
-            e.*,
-            u.* as creator,
+            e.event_id,
+            e.name,
+            e.description,
+            e.location,
+            e.start_date,
+            e.close_registration,
+            e.max_attendees,
+            u.user_id as creator_id,
+            u.first_name as creator_first_name,
+            u.last_name as creator_last_name,
+            u.email as creator_email,
             (SELECT COUNT(*) FROM attendees WHERE event_id = e.event_id) as number_attending,
-            (
-                SELECT json_group_array(json_object(
-                    'user_id', a.user_id,
-                    'name', u.name,
-                    'email', u.email
-                ))
-                FROM attendees a
-                JOIN users u ON a.user_id = u.user_id
-                WHERE a.event_id = e.event_id
+            COALESCE(
+                (
+                    SELECT json_group_array(
+                        json_object(
+                            'user_id', a_user.user_id,
+                            'first_name', a_user.first_name,
+                            'last_name', a_user.last_name,
+                            'email', a_user.email
+                        )
+                    )
+                    FROM attendees a
+                    JOIN users a_user ON a.user_id = a_user.user_id
+                    WHERE a.event_id = e.event_id
+                ),
+                '[]'
             ) as attendees,
-            (
-                SELECT json_group_array(json_object(
-                    'question_id', q.question_id,
-                    'question', q.question,
-                    'required', q.required
-                ))
-                FROM questions q
-                WHERE q.event_id = e.event_id
+            COALESCE(
+                (
+                    SELECT json_group_array(
+                        json_object(
+                            'question_id', q.question_id,
+                            'question', q.question,
+                            'asked_by', q.asked_by,
+                            'votes', q.votes
+                        )
+                    )
+                    FROM questions q
+                    WHERE q.event_id = e.event_id
+                ),
+                '[]'
             ) as questions
         FROM events e
         JOIN users u ON e.creator_id = u.user_id
@@ -52,30 +84,69 @@ const getEventFromDB = (event_id, callback) => {
 
     const params = [event_id];
     
+    console.log('📝 DB: Executing SQL query with params:', { event_id });
+    
     db.get(sql, params, (err, row) => {
         if (err) {
+            console.error('❌ DB: Database error:', err);
             return callback(err);
         }
         
         if (!row) {
+            console.log('❌ DB: Event not found for ID:', event_id);
             return callback(new Error('Event not found'));
         }
 
-        // Parse JSON strings if using SQLite
+        console.log('✅ DB: Raw data retrieved successfully');
+
         try {
+            console.log('🔄 DB: Processing result');
+            
+            // Parse JSON strings
             if (typeof row.attendees === 'string') {
                 row.attendees = JSON.parse(row.attendees);
             }
             if (typeof row.questions === 'string') {
                 row.questions = JSON.parse(row.questions);
             }
+
+            // Format the creator object and the complete response
+            const formattedRow = {
+                event_id: row.event_id,
+                name: row.name,
+                description: row.description,
+                location: row.location,
+                start_date: row.start_date,
+                close_registration: row.close_registration,
+                max_attendees: row.max_attendees,
+                creator: {
+                    user_id: row.creator_id,
+                    first_name: row.creator_first_name,
+                    last_name: row.creator_last_name,
+                    email: row.creator_email
+                },
+                number_attending: row.number_attending,
+                attendees: row.attendees,
+                questions: row.questions
+            };
+
+            console.log('✅ DB: Data formatting completed');
+            console.log('📊 DB: Data structure:', {
+                event_id: formattedRow.event_id,
+                name: formattedRow.name,
+                creator_id: formattedRow.creator.user_id,
+                attendees_count: formattedRow.attendees.length,
+                questions_count: formattedRow.questions.length
+            });
+            console.log('✅ DB: Processed result successfully');
+            return callback(null, formattedRow);
         } catch (parseErr) {
+            console.error('❌ DB: Data processing error:', parseErr);
             return callback(parseErr);
         }
-
-        return callback(null, row);
     });
 };
+
 
 const updateEventInDB = (event_id, validatedEvent, callback) => {
     const sql = `

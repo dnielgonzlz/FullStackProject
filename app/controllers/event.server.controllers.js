@@ -70,8 +70,11 @@ const create_event = (req, res) => {
 
     console.log('📝 EVENT: Created event object:', event);
 
+    // Get creator_id from authenticated user (req.user_id is set by authenticate middleware)
+    const creator_id = req.user_id;
+
     // Call the model function
-    events.createEventInDB(event, (err, result) => {
+    events.createEventInDB(event, creator_id, (err, result) => {
         if (err) {
             console.log('❌ EVENT: Database error:', err);
             return res.status(500).json({
@@ -86,23 +89,36 @@ const create_event = (req, res) => {
     });
 };
 
-// Get a single event details
-const get_event = (event_id, done) => {
+const get_event = (req, res) => {
+    console.log('🚀 GET EVENT: Starting retrieval process');
+    
     // Input validation schema
     const inputSchema = Joi.object({
-        event_id: Joi.number().integer().required()
+        event_id: Joi.number()
+            .integer()
+            .required()
+            .messages({
+                'number.base': 'Event ID must be a number',
+                'number.integer': 'Event ID must be an integer',
+                'any.required': 'Event ID is required'
+            })
     });
 
     // Validate input
-    const { error } = inputSchema.validate({ event_id });
+    console.log('🔍 GET EVENT: Validating event ID:', req.params.event_id);
+    const { error } = inputSchema.validate({ event_id: parseInt(req.params.event_id) });
     if (error) {
-        return done(error);
+        console.log('❌ GET EVENT: Input validation failed:', error.message);
+        return res.status(400).json({
+            error_message: error.details[0].message
+        });
     }
+    console.log('✅ GET EVENT: Input validation passed');
 
     // Output validation schema
     const eventDetailsSchema = Joi.object({
         event_id: Joi.number().integer().required(),
-        creator: Joi.object().required(),  // Assuming creator is an object with user details
+        creator: Joi.object().required(),
         name: Joi.string().required(),
         description: Joi.string().required(),
         location: Joi.string().required(),
@@ -110,22 +126,36 @@ const get_event = (event_id, done) => {
         close_registration: Joi.number().integer().required(),
         max_attendees: Joi.number().integer().required(),
         number_attending: Joi.number().integer().required(),
-        attendees: Joi.array().items(Joi.object()).required(),  // Array of attendee objects
-        questions: Joi.array().items(Joi.object()).required()   // Array of question objects
+        attendees: Joi.array().items(Joi.object()).required(),
+        questions: Joi.array().items(Joi.object()).required()
     });
 
-    getEventFromDB(event_id, (err, row) => {
+    console.log('🔄 GET EVENT: Calling database function');
+    events.getEventFromDB(parseInt(req.params.event_id), (err, row) => {
         if (err) {
-            return done(err);
+            console.log('❌ GET EVENT: Database error:', err.message);
+            if (err.message === 'Event not found') {
+                return res.status(404).json({
+                    error_message: 'Event not found'
+                });
+            }
+            return res.status(500).json({
+                error_message: 'Internal server error'
+            });
         }
 
         // Validate the output against the schema
+        console.log('🔍 GET EVENT: Validating database response');
         const { error: validationError, value } = eventDetailsSchema.validate(row);
         if (validationError) {
-            return done(validationError);
+            console.log('❌ GET EVENT: Output validation failed:', validationError.message);
+            return res.status(500).json({
+                error_message: 'Data validation error'
+            });
         }
 
-        return done(null, value);
+        console.log('✅ GET EVENT: Successfully retrieved and validated event data');
+        return res.status(200).json(value);
     });
 };
 
