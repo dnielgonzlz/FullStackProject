@@ -38,8 +38,7 @@ const create_account = (req, res) => {
     // Validate input
     const { error } = userSchema.validate(req.body);
     if (error) {
-        return done({
-            status: 400,
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
@@ -53,29 +52,18 @@ const create_account = (req, res) => {
 
     users.createUserInDB(user, (err, id) => {
         if (err) {
-            console.error('Error creating user:', err); // Add logging
+            console.error('Error creating user:', err);
             return res.status(500).json({ error: "Internal server error" });
         }
         return res.status(201).json({ user_id: id });
     });
 
-    // Create salt and hash password 
-    // const salt = crypto.randomBytes(64);
-    // const hash = getHash(user.password, salt);
-
-    // createUserInDB(user, hash, salt, (err, result) => {
-    //     if (err) {
-    //         return res.status(err.status).json({
-    //             error_message: err.error_message
-    //         });
-    //     }
-    //     return res.status(result.status).json({
-    //         user_id: result.user_id
-    //     });
-    // });
 };
 
-const login = (credentials, done) => {
+const login = (req, res) => {
+    console.log('🚀 LOGIN: Starting login process');
+    console.log('📝 LOGIN: Received credentials:', { email: req.body.email, passwordLength: req.body?.password?.length });
+
     // Input validation schema
     const loginSchema = Joi.object({
         email: Joi.string()
@@ -95,15 +83,65 @@ const login = (credentials, done) => {
     });
 
     // Validate input
-    const { error } = loginSchema.validate(credentials);
+    const { error } = loginSchema.validate(req.body);
     if (error) {
-        return done({
-            status: 400,
+        console.log('❌ LOGIN: Validation failed:', error.details[0].message);
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
+    console.log('✅ LOGIN: Input validation passed');
 
-    loginUserInDB(credentials, done);
+    // Pass the credentials from request body to the model function
+    users.loginUserInDB(req.body, (err, result) => {
+        if (err) {
+            console.log('❌ LOGIN: Authentication failed:', err);
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        console.log('✅ LOGIN: User authenticated successfully, user_id:', result.user_id);
+
+        // 3. If authentication successful, check for existing token
+        console.log('🔍 LOGIN: Checking for existing token');
+        users.getTokenFromDB(result.user_id, (tokenErr, tokenResult) => {
+            if (tokenErr && tokenErr.status !== 404) {
+                console.log('❌ LOGIN: Error checking existing token:', tokenErr);
+                return res.status(tokenErr.status).json({
+                    error_message: tokenErr.error_message
+                });
+            }
+
+            // If token exists, return it
+            if (tokenResult && tokenResult.session_token) {
+                console.log('✅ LOGIN: Existing token found and returned');
+                return res.status(200).json({
+                    user_id: result.user_id,
+                    session_token: tokenResult.session_token
+                });
+            }
+            console.log('ℹ️ LOGIN: No existing token found, creating new token');
+
+            // 4. If no token exists, create new one
+            const newToken = crypto.randomBytes(16).toString('hex');
+            console.log('🔑 LOGIN: Generated new token');
+
+            users.setTokenInDB(result.user_id, newToken, (setTokenErr, setTokenResult) => {
+                if (setTokenErr) {
+                    console.log('❌ LOGIN: Error setting new token:', setTokenErr);
+                    return res.status(setTokenErr.status).json({
+                        error_message: setTokenErr.error_message
+                    });
+                }
+
+                console.log('✅ LOGIN: New token set successfully');
+                return res.status(200).json({
+                    user_id: result.user_id,
+                    session_token: newToken
+                });
+            });
+        });
+    });
 };
 
 const logout = (user_id, session_token, done) => {
@@ -141,7 +179,7 @@ const logout = (user_id, session_token, done) => {
     logoutUserInDB(user_id, session_token, done);
 };
 
-const getToken = (user_id, done) => {
+const getToken = (req, res) => {
     // Input validation schema
     const inputSchema = Joi.object({
         user_id: Joi.number()
@@ -156,18 +194,26 @@ const getToken = (user_id, done) => {
     });
 
     // Validate input
-    const { error } = inputSchema.validate({ user_id });
+    const { error } = inputSchema.validate({ user_id: req.params.user_id });
     if (error) {
-        return done({
-            status: 400,
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    getTokenFromDB(user_id, done);
+    getTokenFromDB(parseInt(req.params.user_id), (err, result) => {
+        if (err) {
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        return res.status(200).json({
+            session_token: result.session_token
+        });
+    });
 };
 
-const setToken = (user_id, done) => {
+const setToken = (req, res) => {
     // Input validation schema
     const inputSchema = Joi.object({
         user_id: Joi.number()
@@ -182,10 +228,9 @@ const setToken = (user_id, done) => {
     });
 
     // Validate input
-    const { error } = inputSchema.validate({ user_id });
+    const { error } = inputSchema.validate({ user_id: req.params.user_id });
     if (error) {
-        return done({
-            status: 400,
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
@@ -193,10 +238,20 @@ const setToken = (user_id, done) => {
     // Create a random token
     const token = crypto.randomBytes(64).toString('hex');
 
-    setTokenInDB(user_id, token, done);
+    setTokenInDB(parseInt(req.params.user_id), token, (err, result) => {
+        if (err) {
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        return res.status(200).json({
+            session_token: result.session_token
+        });
+    });
 };
 
-const removeToken = (token, done) => {
+
+const removeToken = (req, res) => {
     // Input validation schema
     const inputSchema = Joi.object({
         token: Joi.string()
@@ -207,19 +262,31 @@ const removeToken = (token, done) => {
             })
     });
 
+    // Get token from authorization header
+    const token = req.headers['x-authorization'];
+
     // Validate input
     const { error } = inputSchema.validate({ token });
     if (error) {
-        return done({
-            status: 400,
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    removeTokenFromDB(token, done);
+    removeTokenFromDB(token, (err, result) => {
+        if (err) {
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        return res.status(200).json({
+            message: 'Token removed successfully'
+        });
+    });
 };
 
-const getIDFromToken = (token, done) => {
+
+const getIDFromToken = (req, res) => {
     // Input validation schema
     const inputSchema = Joi.object({
         token: Joi.string()
@@ -230,17 +297,29 @@ const getIDFromToken = (token, done) => {
             })
     });
 
+    // Get token from authorization header
+    const token = req.headers['x-authorization'];
+
     // Validate input
     const { error } = inputSchema.validate({ token });
     if (error) {
-        return done({
-            status: 400,
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    getIDFromTokenInDB(token, done);
+    getIDFromTokenInDB(token, (err, result) => {
+        if (err) {
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        return res.status(200).json({
+            user_id: result.user_id
+        });
+    });
 };
+
 
 module.exports = {
     create_account: create_account,

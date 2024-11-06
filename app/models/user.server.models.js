@@ -34,12 +34,15 @@ const createUserInDB = (user, callback) => {
 
 
 const loginUserInDB = (credentials, callback) => {
+    console.log('🔍 DB: Starting user lookup for email:', credentials.email);
+    
     const sql = `SELECT user_id, email, password, salt, first_name, last_name 
                  FROM users 
                  WHERE email = ?`;
 
     db.get(sql, [credentials.email], (err, user) => {
         if (err) {
+            console.error('❌ DB: Error during user lookup:', err);
             return callback({
                 status: 500,
                 error_message: 'Database error during login'
@@ -47,11 +50,14 @@ const loginUserInDB = (credentials, callback) => {
         }
 
         if (!user) {
+            console.log('❌ DB: No user found with email:', credentials.email);
             return callback({
                 status: 400,
                 error_message: 'Invalid email or password'
             });
         }
+
+        console.log('✅ DB: User found, verifying password');
 
         // Hash the provided password with stored salt
         const hashedPassword = getHash(
@@ -61,30 +67,52 @@ const loginUserInDB = (credentials, callback) => {
 
         // Compare password hashes
         if (hashedPassword !== user.password) {
+            console.log('❌ DB: Password mismatch');
             return callback({
                 status: 400,
                 error_message: 'Invalid email or password'
             });
         }
 
+        console.log('✅ DB: Password verified successfully');
+
         // Generate session token
         const sessionToken = crypto.randomBytes(16).toString('hex');
+        console.log('✅ DB: Generated new session token');
 
-        // Update last login time and session token
+        // Update session token only
         const updateSql = `
             UPDATE users 
-            SET last_login = ?, 
-                session_token = ? 
+            SET session_token = ? 
             WHERE user_id = ?`;
+        
+        console.log('🔄 DB: Attempting to update user:', {
+            user_id: user.user_id,
+            tokenLength: sessionToken.length
+        });
 
-        db.run(updateSql, [Date.now(), sessionToken, user.user_id], (err) => {
+        // Log the actual SQL and parameters being used
+        console.log('SQL:', updateSql);
+        console.log('Parameters:', [sessionToken, user.user_id]);
+
+        db.run(updateSql, [sessionToken, user.user_id], function(err) {
             if (err) {
+                console.error('❌ DB: Error updating session token:', err);
                 return callback({
                     status: 500,
                     error_message: 'Failed to update login information'
                 });
             }
 
+            if (this.changes === 0) {
+                console.error('❌ DB: No rows updated during login update');
+                return callback({
+                    status: 500,
+                    error_message: 'Failed to update user login status'
+                });
+            }
+
+            console.log('✅ DB: Successfully updated session token');
             // Return success with user info and session token
             return callback(null, {
                 status: 200,

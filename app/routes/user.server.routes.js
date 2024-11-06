@@ -1,7 +1,7 @@
 const users = require('../controllers/user.server.controllers');
-
-//NOTE: Account creationg has been successfully implemented
-// TODO: Test POST User Login POSTMAN
+const authenticate = require('../lib/authentication');
+// NOTE: Account creationg has been successfully implemented
+// NOTE: User Login has been successfully implemented
 // TODO: Test POST User Logout POSTMAN
 
 module.exports = function(app){
@@ -9,7 +9,7 @@ module.exports = function(app){
         .post(users.create_account);
     
     app.route('/login')
-        .post();
+        .post(users.login);
 
     app.route('/logout')
         .post();
