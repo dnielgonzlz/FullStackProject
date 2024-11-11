@@ -2,80 +2,116 @@ const Joi = require('joi');
 const db = require('../../database');
 
 const askQuestionInDB = (event_id, user_id, question, callback) => {
+    console.log('🔍 DB: Starting question creation process');
+
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // First check if the event exists and if user is allowed to ask questions
-        const checkAccessSql = `
-            SELECT 1
-            FROM events e
-            WHERE e.event_id = ? 
-            AND (
-                e.creator_id = ? 
-                OR EXISTS (
-                    SELECT 1 
-                    FROM attendees a 
-                    WHERE a.event_id = e.event_id 
-                    AND a.user_id = ?
-                )
-            )`;
+        // First check if the event exists
+        const checkEventSql = `SELECT 1 FROM events WHERE event_id = ?`;
 
-        db.get(checkAccessSql, [event_id, user_id, user_id], (err, hasAccess) => {
+        db.get(checkEventSql, [event_id], (err, event) => {
             if (err) {
+                console.error('❌ DB: Error checking event:', err);
                 db.run('ROLLBACK');
                 return callback({
                     status: 500,
-                    error_message: 'Database error while checking access'
+                    error_message: 'Database error while checking event'
                 });
             }
 
-            if (!hasAccess) {
+            if (!event) {
+                console.log('❌ DB: Event not found');
                 db.run('ROLLBACK');
                 return callback({
-                    status: 403,
-                    error_message: 'You cannot ask questions on events you are not registered for or your own events'
+                    status: 404,
+                    error_message: 'Event not found'
                 });
             }
 
-            // Insert the question
-            const insertSql = `
-                INSERT INTO questions (
-                    question,
-                    asked_by,
-                    event_id,
-                    votes,
-                    created_at
-                ) VALUES (?, ?, ?, 0, ?)`;
+            // Then check if user is allowed to ask questions
+            const checkAccessSql = `
+                SELECT 1
+                FROM events e
+                WHERE e.event_id = ? 
+                AND (
+                    e.creator_id = ? 
+                    OR EXISTS (
+                        SELECT 1 
+                        FROM attendees a 
+                        WHERE a.event_id = e.event_id 
+                        AND a.user_id = ?
+                    )
+                )`;
 
-            const params = [
-                question,
-                user_id,
-                event_id,
-                Date.now()
-            ];
-
-            db.run(insertSql, params, function(err) {
+            console.log('🔍 DB: Checking user access');
+            db.get(checkAccessSql, [event_id, user_id, user_id], (err, hasAccess) => {
                 if (err) {
+                    console.error('❌ DB: Error checking access:', err);
                     db.run('ROLLBACK');
                     return callback({
                         status: 500,
-                        error_message: 'Failed to create question'
+                        error_message: 'Database error while checking access'
                     });
                 }
 
-                db.run('COMMIT', (err) => {
+                if (!hasAccess) {
+                    console.log('❌ DB: User not authorized to ask questions');
+                    db.run('ROLLBACK');
+                    return callback({
+                        status: 403,
+                        error_message: 'You cannot ask questions on events you are not registered for or your own events'
+                    });
+                }
+
+                console.log('✅ DB: User authorized to ask questions');
+
+                // Insert the question - Modified to match schema exactly
+                const insertSql = `
+                    INSERT INTO questions (
+                        question,
+                        asked_by,
+                        event_id,
+                        votes
+                    ) VALUES (?, ?, ?, 0)`;
+
+                const params = [
+                    question,
+                    user_id,
+                    event_id
+                ];
+
+                console.log('📝 DB: Inserting question with params:', {
+                    question: question,
+                    asked_by: user_id,
+                    event_id: event_id
+                });
+
+                db.run(insertSql, params, function(err) {
                     if (err) {
+                        console.error('❌ DB: Error creating question:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
-                            error_message: 'Failed to commit transaction'
+                            error_message: 'Failed to create question'
                         });
                     }
 
-                    // Successfully created
-                    return callback(null, {
-                        status: 201,
-                        question_id: this.lastID
+                    db.run('COMMIT', (err) => {
+                        if (err) {
+                            console.error('❌ DB: Error committing transaction:', err);
+                            db.run('ROLLBACK');
+                            return callback({
+                                status: 500,
+                                error_message: 'Failed to commit transaction'
+                            });
+                        }
+
+                        console.log('✅ DB: Question created successfully with ID:', this.lastID);
+                        return callback(null, {
+                            status: 201,
+                            question_id: this.lastID
+                        });
                     });
                 });
             });
@@ -83,19 +119,24 @@ const askQuestionInDB = (event_id, user_id, question, callback) => {
     });
 };
 
+
+
 const deleteQuestionFromDB = (question_id, user_id, callback) => {
+    console.log('🔍 DB: Starting question deletion process');
+
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // First check if the question exists and if user has permission to delete it
         const checkPermissionSql = `
             SELECT q.asked_by, e.creator_id
             FROM questions q
             JOIN events e ON q.event_id = e.event_id
             WHERE q.question_id = ?`;
 
+        console.log('🔍 DB: Checking permissions for question:', question_id);
         db.get(checkPermissionSql, [question_id], (err, row) => {
             if (err) {
+                console.error('❌ DB: Error checking permissions:', err);
                 db.run('ROLLBACK');
                 return callback({
                     status: 500,
@@ -104,63 +145,66 @@ const deleteQuestionFromDB = (question_id, user_id, callback) => {
             }
 
             if (!row) {
+                console.log('❌ DB: Question not found');
                 db.run('ROLLBACK');
                 return callback({
                     status: 404,
-                    error_message: 'Question not found'
+                    error_message: 'Not Found'
                 });
             }
 
+            console.log('👤 DB: Checking user authorization:', {
+                user_id: user_id,
+                asked_by: row.asked_by,
+                creator_id: row.creator_id
+            });
+
             // Check if user is either the question author or the event creator
             if (row.asked_by !== user_id && row.creator_id !== user_id) {
+                console.log('❌ DB: User not authorized to delete question');
                 db.run('ROLLBACK');
                 return callback({
                     status: 403,
-                    error_message: 'You can only delete questions that you have authored, or for events that you have created'
+                    error_message: 'You can only delete questions that have authored, or for events that you have created'
                 });
             }
 
             // Delete the question
             const deleteSql = `DELETE FROM questions WHERE question_id = ?`;
 
+            console.log('📝 DB: Deleting question');
             db.run(deleteSql, [question_id], function(err) {
                 if (err) {
+                    console.error('❌ DB: Error deleting question:', err);
                     db.run('ROLLBACK');
                     return callback({
                         status: 500,
-                        error_message: 'Failed to delete question'
-                    });
-                }
-
-                if (this.changes === 0) {
-                    db.run('ROLLBACK');
-                    return callback({
-                        status: 404,
-                        error_message: 'Question not found'
+                        error_message: 'Server Error'
                     });
                 }
 
                 db.run('COMMIT', (err) => {
                     if (err) {
+                        console.error('❌ DB: Error committing transaction:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
-                            error_message: 'Failed to commit transaction'
+                            error_message: 'Server Error'
                         });
                     }
 
-                    // Successfully deleted
-                    return callback(null, {
-                        status: 200,
-                        message: 'Question successfully deleted'
-                    });
+                    console.log('✅ DB: Question deleted successfully');
+                    return callback(null, { status: 200 });
                 });
             });
         });
     });
 };
 
+
 const upvoteQuestionInDB = (question_id, user_id, callback) => {
+    console.log('🔍 DB: Starting upvote process');
+
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -170,20 +214,23 @@ const upvoteQuestionInDB = (question_id, user_id, callback) => {
             FROM questions 
             WHERE question_id = ?`;
 
+        console.log('🔍 DB: Checking if question exists');
         db.get(checkQuestionSql, [question_id], (err, question) => {
             if (err) {
+                console.error('❌ DB: Error checking question:', err);
                 db.run('ROLLBACK');
                 return callback({
                     status: 500,
-                    error_message: 'Database error while checking question'
+                    error_message: 'Server Error'
                 });
             }
 
             if (!question) {
+                console.log('❌ DB: Question not found');
                 db.run('ROLLBACK');
                 return callback({
                     status: 404,
-                    error_message: 'Question not found'
+                    error_message: 'Not Found'
                 });
             }
 
@@ -193,16 +240,19 @@ const upvoteQuestionInDB = (question_id, user_id, callback) => {
                 FROM votes 
                 WHERE question_id = ? AND voter_id = ?`;
 
+            console.log('🔍 DB: Checking for existing vote');
             db.get(checkVoteSql, [question_id, user_id], (err, existingVote) => {
                 if (err) {
+                    console.error('❌ DB: Error checking vote:', err);
                     db.run('ROLLBACK');
                     return callback({
                         status: 500,
-                        error_message: 'Database error while checking vote'
+                        error_message: 'Server Error'
                     });
                 }
 
                 if (existingVote) {
+                    console.log('❌ DB: User has already voted');
                     db.run('ROLLBACK');
                     return callback({
                         status: 403,
@@ -212,18 +262,17 @@ const upvoteQuestionInDB = (question_id, user_id, callback) => {
 
                 // Record the vote
                 const insertVoteSql = `
-                    INSERT INTO votes (
-                        question_id, 
-                        voter_id,
-                        voted_at
-                    ) VALUES (?, ?, ?)`;
+                    INSERT INTO votes (question_id, voter_id) 
+                    VALUES (?, ?)`;
 
-                db.run(insertVoteSql, [question_id, user_id, Date.now()], (err) => {
+                console.log('📝 DB: Recording vote');
+                db.run(insertVoteSql, [question_id, user_id], (err) => {
                     if (err) {
+                        console.error('❌ DB: Error recording vote:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
-                            error_message: 'Failed to record vote'
+                            error_message: 'Server Error'
                         });
                     }
 
@@ -233,38 +282,29 @@ const upvoteQuestionInDB = (question_id, user_id, callback) => {
                         SET votes = votes + 1 
                         WHERE question_id = ?`;
 
+                    console.log('📝 DB: Updating vote count');
                     db.run(updateVotesSql, [question_id], function(err) {
                         if (err) {
+                            console.error('❌ DB: Error updating vote count:', err);
                             db.run('ROLLBACK');
                             return callback({
                                 status: 500,
-                                error_message: 'Failed to update vote count'
-                            });
-                        }
-
-                        if (this.changes === 0) {
-                            db.run('ROLLBACK');
-                            return callback({
-                                status: 404,
-                                error_message: 'Question not found'
+                                error_message: 'Server Error'
                             });
                         }
 
                         db.run('COMMIT', (err) => {
                             if (err) {
+                                console.error('❌ DB: Error committing transaction:', err);
                                 db.run('ROLLBACK');
                                 return callback({
                                     status: 500,
-                                    error_message: 'Failed to commit transaction'
+                                    error_message: 'Server Error'
                                 });
                             }
 
-                            // Successfully voted
-                            return callback(null, {
-                                status: 200,
-                                message: 'Vote recorded successfully',
-                                question_id: question_id
-                            });
+                            console.log('✅ DB: Vote recorded successfully');
+                            return callback(null, { status: 200 });
                         });
                     });
                 });
@@ -273,7 +313,10 @@ const upvoteQuestionInDB = (question_id, user_id, callback) => {
     });
 };
 
+
 const downvoteQuestionInDB = (question_id, user_id, callback) => {
+    console.log('🔍 DB: Starting downvote process');
+
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -283,20 +326,23 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
             FROM questions 
             WHERE question_id = ?`;
 
+        console.log('🔍 DB: Checking if question exists');
         db.get(checkQuestionSql, [question_id], (err, question) => {
             if (err) {
+                console.error('❌ DB: Error checking question:', err);
                 db.run('ROLLBACK');
                 return callback({
                     status: 500,
-                    error_message: 'Database error while checking question'
+                    error_message: 'Server Error'
                 });
             }
 
             if (!question) {
+                console.log('❌ DB: Question not found');
                 db.run('ROLLBACK');
                 return callback({
                     status: 404,
-                    error_message: 'Question not found'
+                    error_message: 'Not Found'
                 });
             }
 
@@ -306,20 +352,23 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                 FROM votes 
                 WHERE question_id = ? AND voter_id = ?`;
 
+            console.log('🔍 DB: Checking for existing vote');
             db.get(checkVoteSql, [question_id, user_id], (err, existingVote) => {
                 if (err) {
+                    console.error('❌ DB: Error checking vote:', err);
                     db.run('ROLLBACK');
                     return callback({
                         status: 500,
-                        error_message: 'Database error while checking vote'
+                        error_message: 'Server Error'
                     });
                 }
 
                 if (!existingVote) {
+                    console.log('❌ DB: User has not voted on this question');
                     db.run('ROLLBACK');
                     return callback({
                         status: 403,
-                        error_message: 'You have not voted on this question'
+                        error_message: 'You have already voted on this question'
                     });
                 }
 
@@ -328,12 +377,14 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                     DELETE FROM votes 
                     WHERE question_id = ? AND voter_id = ?`;
 
+                console.log('📝 DB: Removing vote');
                 db.run(deleteVoteSql, [question_id, user_id], (err) => {
                     if (err) {
+                        console.error('❌ DB: Error removing vote:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
-                            error_message: 'Failed to remove vote'
+                            error_message: 'Server Error'
                         });
                     }
 
@@ -343,30 +394,29 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                         SET votes = votes - 1 
                         WHERE question_id = ? AND votes > 0`;
 
+                    console.log('📝 DB: Updating vote count');
                     db.run(updateVotesSql, [question_id], function(err) {
                         if (err) {
+                            console.error('❌ DB: Error updating vote count:', err);
                             db.run('ROLLBACK');
                             return callback({
                                 status: 500,
-                                error_message: 'Failed to update vote count'
+                                error_message: 'Server Error'
                             });
                         }
 
                         db.run('COMMIT', (err) => {
                             if (err) {
+                                console.error('❌ DB: Error committing transaction:', err);
                                 db.run('ROLLBACK');
                                 return callback({
                                     status: 500,
-                                    error_message: 'Failed to commit transaction'
+                                    error_message: 'Server Error'
                                 });
                             }
 
-                            // Successfully downvoted
-                            return callback(null, {
-                                status: 200,
-                                message: 'Vote removed successfully',
-                                question_id: question_id
-                            });
+                            console.log('✅ DB: Vote removed successfully');
+                            return callback(null, { status: 200 });
                         });
                     });
                 });
@@ -375,72 +425,10 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
     });
 };
 
-/**
- * Question management module
- * @module questions
- */
-
-/**
- * @typedef {Object} Question
- * @property {number} question_id - Unique identifier for the question
- * @property {string} question - The question text
- * @property {number} asked_by - User ID of the question author
- * @property {number} event_id - ID of the event this question belongs to
- * @property {number} votes - Number of votes on the question
- * @property {number} created_at - Timestamp when question was created
- */
-
-/**
- * @typedef {Object} Vote
- * @property {number} question_id - ID of the question being voted on
- * @property {number} voter_id - ID of the user voting
- * @property {number} voted_at - Timestamp of the vote
- */
 
 module.exports = {
-    /** 
-     * Create a new question for an event
-     * @function askQuestion
-     * @param {number} event_id - ID of the event
-     * @param {number} user_id - ID of the asking user
-     * @param {Object} questionData - Question data
-     * @param {string} questionData.question - The question text
-     * @param {function} done - Callback function
-     */
-    askQuestion,
-
-    /** 
-     * Delete a question
-     * @function deleteQuestion
-     * @param {number} question_id - ID of the question to delete
-     * @param {number} user_id - ID of user attempting deletion
-     * @param {function} done - Callback function
-     */
-    deleteQuestion,
-
-    /** 
-     * Upvote a question
-     * @function upvoteQuestion
-     * @param {number} question_id - ID of the question to upvote
-     * @param {number} user_id - ID of the voting user
-     * @param {function} done - Callback function
-     */
-    upvoteQuestion,
-
-    /** 
-     * Downvote a question (remove upvote)
-     * @function downvoteQuestion
-     * @param {number} question_id - ID of the question to downvote
-     * @param {number} user_id - ID of the voting user
-     * @param {function} done - Callback function
-     */
-    downvoteQuestion
-};
-
-// Question management functions
-module.exports = {
-    askQuestion,      // Create a new question for an event
-    deleteQuestion,   // Delete a question (creator or event owner only)
-    upvoteQuestion,   // Upvote a question
-    downvoteQuestion  // Remove upvote from a question
+    askQuestionInDB,      // Create a new question for an event
+    deleteQuestionFromDB,   // Delete a question (creator or event owner only)
+    upvoteQuestionInDB,   // Upvote a question
+    downvoteQuestionInDB  // Remove upvote from a question
 };

@@ -3,20 +3,30 @@ const Joi = require('joi');
 const users = require('../models/user.server.models');
 
 const create_account = (req, res) => {
-    // Input validation schema
+    console.log('🚀 CREATE: Starting user account creation');
+
+    // Input validation schema with exact test requirements
     const userSchema = Joi.object({
         first_name: Joi.string()
             .required()
             .trim()
+            .min(1)
+            .pattern(/\S/) // Cannot be just whitespace
             .messages({
-                'string.empty': 'First name is required'
+                'string.empty': 'First name is required',
+                'any.required': 'First name is required',
+                'string.pattern.base': 'First name cannot be blank'
             }),
 
         last_name: Joi.string()
             .required()
             .trim()
+            .min(1)
+            .pattern(/\S/) // Cannot be just whitespace
             .messages({
-                'string.empty': 'Last name is required'
+                'string.empty': 'Last name is required',
+                'any.required': 'Last name is required',
+                'string.pattern.base': 'Last name cannot be blank'
             }),
 
         email: Joi.string()
@@ -24,45 +34,91 @@ const create_account = (req, res) => {
             .trim()
             .email()
             .messages({
-                'string.email': 'Please provide a valid email address',
-                'string.empty': 'Email is required'
+                'string.email': 'Invalid email address',
+                'string.empty': 'Email is required',
+                'any.required': 'Email is required'
             }),
 
         password: Joi.string()
             .required()
+            .min(8)
+            .max(64)
+            .pattern(/[a-z]/, 'lowercase')
+            .pattern(/[A-Z]/, 'uppercase')
+            .pattern(/[0-9]/, 'numbers')
+            .pattern(/[^a-zA-Z0-9]/, 'special')
             .messages({
-                'string.empty': 'Password is required'
+                'string.empty': 'Password is required',
+                'any.required': 'Password is required',
+                'string.min': 'Password must be at least 8 characters',
+                'string.max': 'Password must not exceed 64 characters',
+                'string.pattern.lowercase': 'Password must contain a lowercase letter',
+                'string.pattern.uppercase': 'Password must contain an uppercase letter',
+                'string.pattern.numbers': 'Password must contain a number',
+                'string.pattern.special': 'Password must contain a special character'
             })
+    })
+    .required()
+    .unknown(false) // This will trigger on extra fields
+    .messages({
+        'object.unknown': 'Invalid property provided'
     });
 
     // Validate input
-    const { error } = userSchema.validate(req.body);
+    const { error } = userSchema.validate(req.body, { abortEarly: true });
     if (error) {
+        console.log('❌ CREATE: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    const user = {
-        first_name: req.body.first_name,
-        last_name: req.body.last_name,
-        email: req.body.email,
-        password: req.body.password
-    };
+    console.log('✅ CREATE: Validation passed');
 
-    users.createUserInDB(user, (err, id) => {
+    // Check if email already exists before attempting insert
+    const checkEmailSql = 'SELECT 1 FROM users WHERE email = ?';
+    db.get(checkEmailSql, [req.body.email], (err, row) => {
         if (err) {
-            console.error('Error creating user:', err);
-            return res.status(500).json({ error: "Internal server error" });
+            console.error('❌ CREATE: Database error checking email:', err);
+            return res.status(500).json({
+                error_message: 'Server error'
+            });
         }
-        return res.status(201).json({ user_id: id });
-    });
 
+        if (row) {
+            console.log('❌ CREATE: Email already exists:', req.body.email);
+            return res.status(400).json({
+                error_message: 'Email already exists'
+            });
+        }
+        
+        // Proceed with user creation
+        const user = {
+            first_name: req.body.first_name,
+            last_name: req.body.last_name,
+            email: req.body.email,
+            password: req.body.password
+        };
+
+        users.createUserInDB(user, (err, result) => {
+            if (err) {
+                console.error('❌ CREATE: Database error:', err);
+                return res.status(500).json({
+                    error_message: 'Server error'
+                });
+            }
+
+            console.log('✅ CREATE: User created successfully');
+            return res.status(201).json({
+                user_id: result
+            });
+        });
+    });
 };
+
 
 const login = (req, res) => {
     console.log('🚀 LOGIN: Starting login process');
-    console.log('📝 LOGIN: Received credentials:', { email: req.body.email, passwordLength: req.body?.password?.length });
 
     // Input validation schema
     const loginSchema = Joi.object({
@@ -72,20 +128,24 @@ const login = (req, res) => {
             .email()
             .messages({
                 'string.email': 'Please provide a valid email address',
-                'string.empty': 'Email is required'
+                'string.empty': 'Email is required',
+                'any.required': 'Email is required'
             }),
             
         password: Joi.string()
             .required()
             .messages({
-                'string.empty': 'Password is required'
+                'string.empty': 'Password is required',
+                'any.required': 'Password is required'
             })
-    });
+    })
+    .required()
+    .unknown(false); // Disallow extra fields
 
     // Validate input
     const { error } = loginSchema.validate(req.body);
     if (error) {
-        console.log('❌ LOGIN: Validation failed:', error.details[0].message);
+        console.log('❌ LOGIN: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });

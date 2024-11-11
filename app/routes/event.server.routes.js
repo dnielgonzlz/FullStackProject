@@ -3,10 +3,10 @@ const authenticate = require('../lib/authentication');
 
 // NOTE: Create New Event has been successfully implemented
 // NOTE: Get All Events has been successfully implemented
-// TODO: Test PATCH Update Event POSTMAN
-// TODO: Test POST Register to Attend An Event POSTMAN
-// TODO: Test DELETE Delete Event POSTMAN
-// TODO: Test GET Search An Event POSTMAN
+// NOTE: Update an Eventhas been successfully implemented
+// NOTE: Register to Attend been successfully implemented
+// NOTE: Delete Event has been successfully implemented
+// NOTE: Search Event has been successfully implemented
 
 module.exports = function(app){
     app.route('/events')
@@ -14,10 +14,10 @@ module.exports = function(app){
     
     app.route('/events/:event_id')
         .get(authenticate, events.get_event)
-        .patch()
-        .post()
-        .delete();
+        .patch(authenticate, events.update_single_event)
+        .post(authenticate, events.register_attendance_to_event)
+        .delete(authenticate, events.delete_event);
 
     app.route('/search')
-        .get();
+        .get(authenticate, events.search_event);
 }

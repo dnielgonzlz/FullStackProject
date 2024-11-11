@@ -8,49 +8,84 @@ const getHash = function(password, salt) {
 };
 
 const createUserInDB = (user, callback) => {
-    // Create salt and hash password 
-    const salt = crypto.randomBytes(64);
-    const hash = getHash(user.password, salt);
+    console.log('🔍 DB: Starting user creation process');
 
-    const sql = `INSERT INTO users (first_name, last_name, email, password, salt)
-                 VALUES (?, ?, ?, ?, ?)`;
-    const values = [
-        user.first_name,
-        user.last_name,
-        user.email,
-        hash,
-        salt.toString('hex')
-    ];
-    
-    db.run(sql, values, function(err) {
+    // First check if email exists
+    const checkEmailSql = `SELECT 1 FROM users WHERE email = ?`;
+    db.get(checkEmailSql, [user.email], (err, row) => {
         if (err) {
-            console.error('Error inserting user into database:', err); // Add logging
-            return callback(err);
+            console.error('❌ DB: Error checking email:', err);
+            return callback({
+                status: 500,
+                error_message: 'Server error'
+            });
         }
-        return callback(null, this.lastID);
+
+        if (row) {
+            console.log('❌ DB: Email already exists');
+            return callback({
+                status: 400,
+                error_message: 'Email already exists'
+            });
+        }
+
+        // Create salt and hash password 
+        const salt = crypto.randomBytes(64);
+        const hash = getHash(user.password, salt);
+
+        const sql = `INSERT INTO users (first_name, last_name, email, password, salt)
+                     VALUES (?, ?, ?, ?, ?)`;
+        const values = [
+            user.first_name.trim(),
+            user.last_name.trim(),
+            user.email.trim().toLowerCase(),
+            hash,
+            salt.toString('hex')
+        ];
+        
+        console.log('📝 DB: Executing insert query');
+        db.run(sql, values, function(err) {
+            if (err) {
+                console.error('❌ DB: Error inserting user:', err);
+                if (err.code === 'SQLITE_CONSTRAINT') {
+                    return callback({
+                        status: 400,
+                        error_message: 'Email already exists'
+                    });
+                }
+                return callback({
+                    status: 500,
+                    error_message: 'Server error'
+                });
+            }
+
+            console.log('✅ DB: User created with ID:', this.lastID);
+            return callback(null, this.lastID);
+        });
     });
 };
 
-
-
 const loginUserInDB = (credentials, callback) => {
     console.log('🔍 DB: Starting user lookup for email:', credentials.email);
+    
+    // Normalize email for comparison
+    const normalizedEmail = credentials.email.trim().toLowerCase();
     
     const sql = `SELECT user_id, email, password, salt, first_name, last_name 
                  FROM users 
                  WHERE email = ?`;
 
-    db.get(sql, [credentials.email], (err, user) => {
+    db.get(sql, [normalizedEmail], (err, user) => {
         if (err) {
             console.error('❌ DB: Error during user lookup:', err);
             return callback({
                 status: 500,
-                error_message: 'Database error during login'
+                error_message: 'Server error'
             });
         }
 
         if (!user) {
-            console.log('❌ DB: No user found with email:', credentials.email);
+            console.log('❌ DB: No user found with email:', normalizedEmail);
             return callback({
                 status: 400,
                 error_message: 'Invalid email or password'
@@ -59,67 +94,57 @@ const loginUserInDB = (credentials, callback) => {
 
         console.log('✅ DB: User found, verifying password');
 
-        // Hash the provided password with stored salt
-        const hashedPassword = getHash(
-            credentials.password, 
-            Buffer.from(user.salt, 'hex')
-        );
+        try {
+            // Hash the provided password with stored salt
+            const hashedPassword = getHash(
+                credentials.password, 
+                Buffer.from(user.salt, 'hex')
+            );
 
-        // Compare password hashes
-        if (hashedPassword !== user.password) {
-            console.log('❌ DB: Password mismatch');
+            // Compare password hashes
+            if (hashedPassword !== user.password) {
+                console.log('❌ DB: Password mismatch');
+                return callback({
+                    status: 400,
+                    error_message: 'Invalid email or password'
+                });
+            }
+
+            console.log('✅ DB: Password verified successfully');
+
+            // Generate session token
+            const sessionToken = crypto.randomBytes(16).toString('hex');
+            console.log('✅ DB: Generated new session token');
+
+            // Update session token
+            const updateSql = `
+                UPDATE users 
+                SET session_token = ? 
+                WHERE user_id = ?`;
+
+            db.run(updateSql, [sessionToken, user.user_id], function(err) {
+                if (err) {
+                    console.error('❌ DB: Error updating session token:', err);
+                    return callback({
+                        status: 500,
+                        error_message: 'Server error'
+                    });
+                }
+
+                console.log('✅ DB: Successfully updated session token');
+                return callback(null, {
+                    status: 200,
+                    user_id: user.user_id,
+                    session_token: sessionToken
+                });
+            });
+        } catch (error) {
+            console.error('❌ DB: Error during password verification:', error);
             return callback({
-                status: 400,
-                error_message: 'Invalid email or password'
+                status: 500,
+                error_message: 'Server error'
             });
         }
-
-        console.log('✅ DB: Password verified successfully');
-
-        // Generate session token
-        const sessionToken = crypto.randomBytes(16).toString('hex');
-        console.log('✅ DB: Generated new session token');
-
-        // Update session token only
-        const updateSql = `
-            UPDATE users 
-            SET session_token = ? 
-            WHERE user_id = ?`;
-        
-        console.log('🔄 DB: Attempting to update user:', {
-            user_id: user.user_id,
-            tokenLength: sessionToken.length
-        });
-
-        // Log the actual SQL and parameters being used
-        console.log('SQL:', updateSql);
-        console.log('Parameters:', [sessionToken, user.user_id]);
-
-        db.run(updateSql, [sessionToken, user.user_id], function(err) {
-            if (err) {
-                console.error('❌ DB: Error updating session token:', err);
-                return callback({
-                    status: 500,
-                    error_message: 'Failed to update login information'
-                });
-            }
-
-            if (this.changes === 0) {
-                console.error('❌ DB: No rows updated during login update');
-                return callback({
-                    status: 500,
-                    error_message: 'Failed to update user login status'
-                });
-            }
-
-            console.log('✅ DB: Successfully updated session token');
-            // Return success with user info and session token
-            return callback(null, {
-                status: 200,
-                user_id: user.user_id,
-                session_token: sessionToken
-            });
-        });
     });
 };
 

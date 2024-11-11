@@ -160,85 +160,123 @@ const get_event = (req, res) => {
 };
 
 // Update an event
-const update_single_event = (event_id, event, done) => {
+const update_single_event = (req, res) => {
+    console.log('🚀 UPDATE EVENT: Starting update process');
+
     // Input validation schemas
     const paramsSchema = Joi.object({
         event_id: Joi.number()
             .integer()
             .required()
             .positive()
+            .messages({
+                'number.base': 'Event ID must be a number',
+                'number.integer': 'Event ID must be an integer',
+                'any.required': 'Event ID is required'
+            })
     });
 
     const eventUpdateSchema = Joi.object({
         name: Joi.string()
             .required()
-            .example('NodeJS developer meetup Manchester'),
+            .example('NodeJS developer meetup Manchester')
+            .messages({
+                'string.empty': 'Name is required'
+            }),
 
         description: Joi.string()
             .required()
-            .example('Our regular monthly catch-up to discuss all things Node'),
+            .example('Our regular monthly catch-up to discuss all things Node')
+            .messages({
+                'string.empty': 'Description is required'
+            }),
 
         location: Joi.string()
             .required()
-            .example('Federal Cafe and Bar'),
+            .example('Federal Cafe and Bar')
+            .messages({
+                'string.empty': 'Location is required'
+            }),
 
         start_date: Joi.number()
             .integer()
             .required()
-            .example(89983256),
+            .example(89983256)
+            .messages({
+                'number.base': 'Start date must be a timestamp'
+            }),
 
         close_registration: Joi.number()
             .integer()
             .required()
-            .example(89983256),
+            .example(89983256)
+            .messages({
+                'number.base': 'Close registration must be a timestamp'
+            }),
 
         max_attendees: Joi.number()
             .integer()
             .required()
             .min(1)
             .example(20)
+            .messages({
+                'number.base': 'Maximum attendees must be a number',
+                'number.min': 'Maximum attendees must be at least 1'
+            })
     });
 
     // Validate event_id
-    const { error: idError } = paramsSchema.validate({ event_id });
+    console.log('🔍 UPDATE EVENT: Validating event ID:', req.params.event_id);
+    const { error: idError } = paramsSchema.validate({ event_id: parseInt(req.params.event_id) });
     if (idError) {
-        return done(idError);
+        console.log('❌ UPDATE EVENT: Invalid event ID:', idError.message);
+        return res.status(400).json({
+            error_message: idError.details[0].message
+        });
     }
 
     // Validate event update data
-    const { error: eventError, value: validatedEvent } = eventUpdateSchema.validate(event);
+    console.log('🔍 UPDATE EVENT: Validating event data');
+    const { error: eventError, value: validatedEvent } = eventUpdateSchema.validate(req.body);
     if (eventError) {
-        return done(eventError);
+        console.log('❌ UPDATE EVENT: Invalid event data:', eventError.message);
+        return res.status(400).json({
+            error_message: eventError.details[0].message
+        });
     }
 
-    updateEventInDB(event_id, validatedEvent, done);
+    console.log('✅ UPDATE EVENT: Validation passed, updating event');
+    events.updateEventInDB(parseInt(req.params.event_id), req.user_id, validatedEvent, (err, result) => {
+        if (err) {
+            console.log('❌ UPDATE EVENT: Database error:', err.message);
+            if (err.message === 'Event not found') {
+                return res.status(404).json({
+                    error_message: 'Event not found'
+                });
+            }
+            if (err.message === 'Unauthorized to update this event') {
+                return res.status(403).json({
+                    error_message: 'Unauthorized to update this event'
+                });
+            }
+            return res.status(500).json({
+                error_message: 'Failed to update event'
+            });
+        }
+
+        console.log('✅ UPDATE EVENT: Successfully updated event:', result);
+        return res.status(200).json({
+            message: 'Event updated successfully',
+            event_id: result.event_id
+        });
+    });
 };
+
 
 // Register Attendenance to an Event
-const register_attendance_to_event = (event_id, user_id, done) => {
-    // Input validation schema
-    const inputSchema = Joi.object({
-        event_id: Joi.number()
-            .integer()
-            .required()
-            .positive(),
-        user_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
-    });
+const register_attendance_to_event = (req, res) => {
+    console.log('🚀 REGISTER: Starting event registration process');
 
-    // Validate inputs
-    const { error } = inputSchema.validate({ event_id, user_id });
-    if (error) {
-        return done(error);
-    }
-
-    registerAttendanceInDB(event_id, user_id, done);
-};
-
-// Delete an event given an id
-const delete_event = (event_id, user_id, done) => {
     // Input validation schema
     const inputSchema = Joi.object({
         event_id: Joi.number()
@@ -249,33 +287,118 @@ const delete_event = (event_id, user_id, done) => {
                 'number.base': 'Event ID must be a number',
                 'number.integer': 'Event ID must be an integer',
                 'any.required': 'Event ID is required'
-            }),
-        user_id: Joi.number()
-            .integer()
-            .required()
-            .positive()
+            })
     });
 
-    // Validate input
-    const { error } = inputSchema.validate({ event_id, user_id });
+    // Validate event_id from params
+    console.log('🔍 REGISTER: Validating event ID:', req.params.event_id);
+    const { error } = inputSchema.validate({ 
+        event_id: parseInt(req.params.event_id)
+    });
+
     if (error) {
-        return done({
-            status: 400,
+        console.log('❌ REGISTER: Validation failed:', error.message);
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    deleteEventFromDB(event_id, user_id, done);
+    // Get user_id from authenticate middleware
+    const user_id = req.user_id;
+    const event_id = parseInt(req.params.event_id);
+
+    console.log('✅ REGISTER: Validation passed, proceeding with registration');
+    console.log('👤 REGISTER: User ID:', user_id);
+    console.log('🎫 REGISTER: Event ID:', event_id);
+
+    events.registerAttendanceInDB(event_id, user_id, (err, result) => {
+        if (err) {
+            console.log('❌ REGISTER: Error:', err.error_message || err.message);
+            
+            // Handle different error cases
+            switch(err.status) {
+                case 404:
+                    return res.status(404).json({
+                        error_message: 'Event not found'
+                    });
+                case 403:
+                    return res.status(403).json({
+                        error_message: err.error_message
+                    });
+                default:
+                    return res.status(500).json({
+                        error_message: 'Failed to register for event'
+                    });
+            }
+        }
+
+        console.log('✅ REGISTER: Successfully registered for event');
+        return res.status(201).json({
+            message: 'Successfully registered for event',
+            event_id: result.event_id,
+            user_id: result.user_id,
+            registered_at: result.registered_at
+        });
+    });
 };
 
+const delete_event = (req, res) => {
+    console.log('🚀 DELETE EVENT: Starting archive process');
+
+    // Input validation schema
+    const inputSchema = Joi.object({
+        event_id: Joi.number()
+            .integer()
+            .required()
+            .positive()
+            .messages({
+                'number.base': 'Event ID must be a number',
+                'number.integer': 'Event ID must be an integer',
+                'any.required': 'Event ID is required'
+            })
+    });
+
+    // Validate input
+    const { error } = inputSchema.validate({ event_id: parseInt(req.params.event_id) });
+    if (error) {
+        console.log('❌ DELETE EVENT: Validation failed:', error.message);
+        return res.status(400).json({
+            error_message: error.details[0].message
+        });
+    }
+
+    // Get user_id from authenticate middleware
+    const user_id = req.user_id;
+    const event_id = parseInt(req.params.event_id);
+
+    console.log('🔍 DELETE EVENT: Archiving event:', { event_id, user_id });
+
+    events.archiveEventInDB(event_id, user_id, (err, result) => {
+        if (err) {
+            console.log('❌ DELETE EVENT: Error:', err.error_message);
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+
+        console.log('✅ DELETE EVENT: Successfully archived event');
+        return res.status(200).json({
+            message: 'Event successfully archived'
+        });
+    });
+};
+
+
 // Search for an event
-const search_event = (params, user_id, done) => {
+const search_event = (req, res) => {
+    console.log('🚀 SEARCH: Starting event search');
+
     // Input validation schema
     const searchSchema = Joi.object({
         q: Joi.string()
-            .allow('') // Empty string allowed for no query
-            .default('')
-            .description('String to search for event names'),
+            .allow('')
+            .optional()
+            .description('Search string for event names'),
 
         status: Joi.string()
             .valid('MY_EVENTS', 'ATTENDING', 'OPEN', 'ARCHIVE')
@@ -287,26 +410,53 @@ const search_event = (params, user_id, done) => {
             .min(1)
             .max(100)
             .default(20)
+            .optional()
             .description('Number of items to return'),
 
         offset: Joi.number()
             .integer()
             .min(0)
             .default(0)
+            .optional()
             .description('Number of items to skip')
     });
 
+    // Get query parameters
+    const searchParams = {
+        q: req.query.q || '',
+        status: req.query.status,
+        limit: parseInt(req.query.limit) || 20,
+        offset: parseInt(req.query.offset) || 0
+    };
+
     // Validate input
-    const { error, value } = searchSchema.validate(params);
+    const { error } = searchSchema.validate(searchParams);
     if (error) {
-        return done({
-            status: 400,
+        console.log('❌ SEARCH: Validation failed:', error.message);
+        return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    searchEventsInDB(value, user_id, done);
+    console.log('✅ SEARCH: Validation passed, searching with params:', searchParams);
+
+    // Get user_id from authenticate middleware
+    const user_id = req.user_id;
+
+    events.searchEventsInDB(searchParams, user_id, (err, result) => {
+        if (err) {
+            console.log('❌ SEARCH: Error:', err.error_message);
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+
+        console.log('✅ SEARCH: Search completed successfully');
+        // Return array of events as per API docs
+        return res.status(200).json(result.events);
+    });
 };
+
 
 module.exports = {
     create_event: create_event,

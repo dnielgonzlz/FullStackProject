@@ -5,7 +5,7 @@ const authenticate = require('../lib/authentication');
 // NOTE: User Logout has been successfully implemented
 
 module.exports = function(app){
-    app.route('/user')
+    app.route('/users')
         .post(users.create_account);
     
     app.route('/login')
