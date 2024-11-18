@@ -338,9 +338,6 @@ const update_single_event = (req, res) => {
     });
 };
 
-
-
-
 // Register Attendenance to an Event
 const register_attendance_to_event = (req, res) => {
     console.log('🚀 REGISTER: Starting event registration process');
@@ -410,7 +407,6 @@ const register_attendance_to_event = (req, res) => {
     });
 };
 
-
 const delete_event = (req, res) => {
     console.log('🚀 DELETE EVENT: Starting archive process');
 
@@ -456,7 +452,6 @@ const delete_event = (req, res) => {
         });
     });
 };
-
 
 // Search for an event
 const search_event = (req, res) => {

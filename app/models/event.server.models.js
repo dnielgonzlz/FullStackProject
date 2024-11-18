@@ -55,8 +55,6 @@ const createEventInDB = (event, creator_id, done) => {
     });
 };
 
-
-
 const getEventFromDB = (event_id, callback) => {
     console.log('🔍 DB: Starting database query for event ID:', event_id);
 
@@ -169,8 +167,6 @@ const getEventFromDB = (event_id, callback) => {
     });
 };
 
-
-
 const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
     console.log('🔍 DB: Starting database update for event ID:', event_id);
     console.log('👤 DB: Authenticated user ID:', user_id);
@@ -229,9 +225,6 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
         });
     });
 };
-
-
-
 
 const registerAttendanceInDB = (event_id, user_id, callback) => {
     console.log('🔍 DB: Starting registration process');
@@ -349,10 +342,6 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
     });
 };
 
-
-
-
-
 const archiveEventInDB = (event_id, user_id, callback) => {
     console.log('🔍 DB: Starting event archive process');
     
@@ -440,7 +429,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
         });
     });
 };
-
 
 const searchEventsInDB = (params, user_id, callback) => {
     console.log('🔍 DB: Starting event search');
