@@ -377,32 +377,51 @@ const register_attendance_to_event = (req, res) => {
     console.log('👤 REGISTER: User ID:', user_id);
     console.log('🎫 REGISTER: Event ID:', event_id);
 
-    events.registerAttendanceInDB(event_id, user_id, (err, result) => {
+    // First, get event details and check capacity
+    events.getEventFromDB(event_id, (err, event) => {
         if (err) {
-            console.log('❌ REGISTER: Error:', err.error_message || err.message);
-            
-            switch(err.status) {
-                case 404:
-                    return res.status(404).json({
-                        error_message: 'Event not found'
-                    });
-                case 403:
-                    return res.status(403).json({
-                        error_message: err.error_message
-                    });
-                default:
-                    return res.status(500).json({
-                        error_message: 'Failed to register for event'
-                    });
-            }
+            console.log('❌ REGISTER: Error getting event details:', err.message);
+            return res.status(404).json({
+                error_message: 'Event not found'
+            });
         }
 
-        console.log('✅ REGISTER: Successfully registered for event');
-        return res.status(200).json({  // Changed from 201 to 200
-            message: 'Successfully registered for event',
-            event_id: result.event_id,
-            user_id: result.user_id,
-            registered_at: result.registered_at
+        // Check if event is at capacity
+        if (event.number_attending >= event.max_attendees) {
+            console.log('❌ REGISTER: Event is at capacity');
+            return res.status(403).json({
+                error_message: 'Event is at capacity'
+            });
+        }
+
+        // If not at capacity, proceed with registration
+        events.registerAttendanceInDB(event_id, user_id, (err, result) => {
+            if (err) {
+                console.log('❌ REGISTER: Error:', err.error_message || err.message);
+                
+                switch(err.status) {
+                    case 404:
+                        return res.status(404).json({
+                            error_message: 'Event not found'
+                        });
+                    case 403:
+                        return res.status(403).json({
+                            error_message: err.error_message
+                        });
+                    default:
+                        return res.status(500).json({
+                            error_message: 'Failed to register for event'
+                        });
+                }
+            }
+
+            console.log('✅ REGISTER: Successfully registered for event');
+            return res.status(200).json({
+                message: 'Successfully registered for event',
+                event_id: result.event_id,
+                user_id: result.user_id,
+                registered_at: result.registered_at
+            });
         });
     });
 };
@@ -457,22 +476,23 @@ const delete_event = (req, res) => {
 const search_event = (req, res) => {
     console.log('🚀 SEARCH: Starting event search');
 
-    // Get query parameters
+    // Get and validate query parameters
+    let limit = parseInt(req.query.limit) || 20;  // Default to 20
+    let offset = parseInt(req.query.offset) || 0;  // Default to 0
+
+    // Validate limit bounds
+    if (limit < 1) limit = 1;
+    if (limit > 100) limit = 100;
+
+    // Validate offset bounds
+    if (offset < 0) offset = 0;
+
     const searchParams = {
         q: req.query.q || '',
         status: req.query.status,
-        limit: 100,  // Hard code to 20 to match test
-        offset: 0 
+        limit: limit,
+        offset: offset
     };
-
-    // Only require authentication for MY_EVENTS and ATTENDING status
-    if (searchParams.status === 'MY_EVENTS' || searchParams.status === 'ATTENDING') {
-        if (!req.user_id) {
-            return res.status(401).json({
-                error_message: 'Unauthorized'
-            });
-        }
-    }
 
     // Input validation schema
     const searchSchema = Joi.object({
@@ -486,13 +506,11 @@ const search_event = (req, res) => {
             .integer()
             .min(1)
             .max(100)
-            .default(20)
-            .optional(),
+            .default(20),
         offset: Joi.number()
             .integer()
             .min(0)
             .default(0)
-            .optional()
     });
 
     // Validate input
@@ -502,6 +520,15 @@ const search_event = (req, res) => {
         return res.status(400).json({
             error_message: error.details[0].message
         });
+    }
+
+    // Only require authentication for MY_EVENTS and ATTENDING status
+    if (searchParams.status === 'MY_EVENTS' || searchParams.status === 'ATTENDING') {
+        if (!req.user_id) {
+            return res.status(400).json({
+                error_message: 'Unauthorized'
+            });
+        }
     }
 
     const user_id = req.user_id || null;

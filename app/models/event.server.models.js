@@ -227,115 +227,106 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
 };
 
 const registerAttendanceInDB = (event_id, user_id, callback) => {
-    console.log('🔍 DB: Starting registration process');
-    
-    // First get a precise count of current attendees
-    const checkCapacitySql = `
-        WITH event_details AS (
-            SELECT e.max_attendees, e.creator_id, e.close_registration,
-                   (SELECT COUNT(*) FROM attendees WHERE event_id = e.event_id) as attendee_count
-            FROM events e
-            WHERE e.event_id = ?
-        )
-        SELECT *, 
-               CASE WHEN attendee_count >= max_attendees THEN 1 ELSE 0 END as is_full
-        FROM event_details`;
+    // First check if event exists and get its details
+    const checkEventSql = `
+        SELECT 
+            e.event_id,
+            e.creator_id,
+            e.close_registration,
+            e.max_attendees,
+            (SELECT COUNT(*) FROM attendees WHERE event_id = e.event_id) as current_attendees
+        FROM events e
+        WHERE e.event_id = ?`;
 
-    db.get(checkCapacitySql, [event_id], (err, result) => {
+    db.get(checkEventSql, [event_id], (err, event) => {
         if (err) {
-            console.error('❌ DB: Database error:', err);
             return callback({
                 status: 500,
                 error_message: 'Database error'
             });
         }
 
-        if (!result) {
-            console.log('❌ DB: Event not found');
+        if (!event) {
             return callback({
                 status: 404,
                 error_message: 'Event not found'
             });
         }
 
-        console.log('📊 DB: Capacity check results:', {
-            max_attendees: result.max_attendees,
-            current_attendees: result.attendee_count,
-            is_full: result.is_full === 1,
-            creator_id: result.creator_id,
-            user_attempting: user_id
-        });
-
-        // Strict capacity check
-        if (result.is_full === 1) {
-            console.log('❌ DB: Event is at capacity', {
-                current: result.attendee_count,
-                max: result.max_attendees
-            });
-            return callback({
-                status: 403,
-                error_message: 'Event is at capacity'
-            });
-        }
-
-        // Creator check
-        if (result.creator_id === user_id) {
-            console.log('❌ DB: User is the creator');
+        // Check if user is the creator
+        if (event.creator_id === user_id) {
             return callback({
                 status: 403,
                 error_message: 'You are already registered'
             });
         }
 
-        // Registration closed check
-        if (result.close_registration === -1 || Date.now() >= result.close_registration) {
-            console.log('❌ DB: Registration is closed');
+        // Check if registration is closed (either archived or past close date)
+        if (event.close_registration === -1 || Date.now() > event.close_registration) {
             return callback({
                 status: 403,
                 error_message: 'Registration is closed'
             });
         }
 
-        // Check for existing registration
-        const checkExistingSql = `
-            SELECT 1 FROM attendees 
-            WHERE event_id = ? AND user_id = ?`;
+        // Check if event is at capacity
+        const checkCapacitySql = `
+            SELECT COUNT(*) as count 
+            FROM attendees 
+            WHERE event_id = ?`;
 
-        db.get(checkExistingSql, [event_id, user_id], (err, existing) => {
+        db.get(checkCapacitySql, [event_id], (err, result) => {
             if (err) {
-                console.error('❌ DB: Error checking existing registration:', err);
                 return callback({
                     status: 500,
                     error_message: 'Database error'
                 });
             }
 
-            if (existing) {
-                console.log('❌ DB: User already registered');
+            // Add 1 to count for the creator who is automatically registered
+            if ((result.count + 1) >= event.max_attendees) {
                 return callback({
                     status: 403,
-                    error_message: 'You are already registered'
+                    error_message: 'Event is at capacity'
                 });
             }
 
-            // All checks passed, insert the registration
-            const insertSql = `INSERT INTO attendees (event_id, user_id) VALUES (?, ?)`;
-            
-            db.run(insertSql, [event_id, user_id], function(err) {
+            // Check if user is already registered
+            const checkRegistrationSql = `
+                SELECT 1 FROM attendees 
+                WHERE event_id = ? AND user_id = ?`;
+
+            db.get(checkRegistrationSql, [event_id, user_id], (err, existing) => {
                 if (err) {
-                    console.error('❌ DB: Error inserting registration:', err);
                     return callback({
                         status: 500,
-                        error_message: 'Failed to register'
+                        error_message: 'Database error'
                     });
                 }
 
-                console.log('✅ DB: Registration successful');
-                return callback(null, {
-                    status: 200,
-                    event_id: event_id,
-                    user_id: user_id,
-                    registered_at: Date.now()
+                if (existing) {
+                    return callback({
+                        status: 403,
+                        error_message: 'You are already registered'
+                    });
+                }
+
+                // All checks passed, register the user
+                const insertSql = `INSERT INTO attendees (event_id, user_id) VALUES (?, ?)`;
+                
+                db.run(insertSql, [event_id, user_id], function(err) {
+                    if (err) {
+                        return callback({
+                            status: 500,
+                            error_message: 'Failed to register'
+                        });
+                    }
+                    
+                    return callback(null, {
+                        status: 200,
+                        event_id: event_id,
+                        user_id: user_id
+                    });
                 });
             });
         });
