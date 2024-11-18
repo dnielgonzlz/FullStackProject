@@ -32,7 +32,7 @@ let db = new sqlite3.Database(DBSOURCE, (err) => {
                 name TEXT,
                 description TEXT,
                 location TEXT,
-                start_date INTEGER,
+                start INTEGER,
                 close_registration INTEGER,
                 max_attendees INTEGER,
                 creator_id INTEGER,

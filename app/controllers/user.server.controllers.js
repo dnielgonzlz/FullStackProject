@@ -11,7 +11,7 @@ const create_account = (req, res) => {
             .required()
             .trim()
             .min(1)
-            .pattern(/\S/) // Cannot be just whitespace
+            .pattern(/\S/)
             .messages({
                 'string.empty': 'First name is required',
                 'any.required': 'First name is required',
@@ -22,7 +22,7 @@ const create_account = (req, res) => {
             .required()
             .trim()
             .min(1)
-            .pattern(/\S/) // Cannot be just whitespace
+            .pattern(/\S/)
             .messages({
                 'string.empty': 'Last name is required',
                 'any.required': 'Last name is required',
@@ -59,7 +59,7 @@ const create_account = (req, res) => {
             })
     })
     .required()
-    .unknown(false) // This will trigger on extra fields
+    .unknown(false)
     .messages({
         'object.unknown': 'Invalid property provided'
     });
@@ -74,47 +74,30 @@ const create_account = (req, res) => {
     }
 
     console.log('✅ CREATE: Validation passed');
-
-    // Check if email already exists before attempting insert
-    const checkEmailSql = 'SELECT 1 FROM users WHERE email = ?';
-    db.get(checkEmailSql, [req.body.email], (err, row) => {
-        if (err) {
-            console.error('❌ CREATE: Database error checking email:', err);
-            return res.status(500).json({
-                error_message: 'Server error'
-            });
-        }
-
-        if (row) {
-            console.log('❌ CREATE: Email already exists:', req.body.email);
-            return res.status(400).json({
-                error_message: 'Email already exists'
-            });
-        }
         
-        // Proceed with user creation
-        const user = {
-            first_name: req.body.first_name,
-            last_name: req.body.last_name,
-            email: req.body.email,
-            password: req.body.password
-        };
+    // Proceed with user creation
+    const user = {
+        first_name: req.body.first_name,
+        last_name: req.body.last_name,
+        email: req.body.email,
+        password: req.body.password
+    };
 
-        users.createUserInDB(user, (err, result) => {
-            if (err) {
-                console.error('❌ CREATE: Database error:', err);
-                return res.status(500).json({
-                    error_message: 'Server error'
-                });
-            }
-
-            console.log('✅ CREATE: User created successfully');
-            return res.status(201).json({
-                user_id: result
+    users.createUserInDB(user, (err, result) => {
+        if (err) {
+            console.error('❌ CREATE: Database error:', err);
+            return res.status(err.status || 500).json({
+                error_message: err.error_message || 'Server error'
             });
+        }
+
+        console.log('✅ CREATE: User created successfully');
+        return res.status(201).json({
+            user_id: result
         });
     });
 };
+
 
 
 const login = (req, res) => {

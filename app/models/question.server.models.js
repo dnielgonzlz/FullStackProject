@@ -31,18 +31,17 @@ const askQuestionInDB = (event_id, user_id, question, callback) => {
 
             // Then check if user is allowed to ask questions
             const checkAccessSql = `
-                SELECT 1
-                FROM events e
-                WHERE e.event_id = ? 
-                AND (
-                    e.creator_id = ? 
-                    OR EXISTS (
+                    SELECT 1
+                    FROM events e
+                    WHERE e.event_id = ? 
+                    AND e.creator_id != ? 
+                    AND EXISTS (
                         SELECT 1 
                         FROM attendees a 
                         WHERE a.event_id = e.event_id 
                         AND a.user_id = ?
-                    )
-                )`;
+                    )`;
+
 
             console.log('🔍 DB: Checking user access');
             db.get(checkAccessSql, [event_id, user_id, user_id], (err, hasAccess) => {

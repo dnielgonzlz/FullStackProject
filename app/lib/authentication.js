@@ -3,6 +3,7 @@
 const users = require('../models/user.server.models');
 
 const authenticate = (req, res, next) => {
+
     const token = req.headers['x-authorization'];
     if (!token) {
         return res.status(401).json({ error: 'Unauthorized' });

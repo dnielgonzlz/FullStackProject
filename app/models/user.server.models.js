@@ -11,8 +11,8 @@ const createUserInDB = (user, callback) => {
     console.log('🔍 DB: Starting user creation process');
 
     // First check if email exists
-    const checkEmailSql = `SELECT 1 FROM users WHERE email = ?`;
-    db.get(checkEmailSql, [user.email], (err, row) => {
+    const checkEmailSql = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
+    db.get(checkEmailSql, [user.email.trim().toLowerCase()], (err, row) => {
         if (err) {
             console.error('❌ DB: Error checking email:', err);
             return callback({
@@ -21,7 +21,7 @@ const createUserInDB = (user, callback) => {
             });
         }
 
-        if (row) {
+        if (row && row.count > 0) {
             console.log('❌ DB: Email already exists');
             return callback({
                 status: 400,
@@ -71,7 +71,7 @@ const loginUserInDB = (credentials, callback) => {
     // Normalize email for comparison
     const normalizedEmail = credentials.email.trim().toLowerCase();
     
-    const sql = `SELECT user_id, email, password, salt, first_name, last_name 
+    const sql = `SELECT user_id, email, password, salt, first_name, last_name, session_token
                  FROM users 
                  WHERE email = ?`;
 
@@ -112,7 +112,17 @@ const loginUserInDB = (credentials, callback) => {
 
             console.log('✅ DB: Password verified successfully');
 
-            // Generate session token
+            // If user already has a session token, return it
+            if (user.session_token) {
+                console.log('✅ DB: Returning existing session token');
+                return callback(null, {
+                    status: 200,
+                    user_id: user.user_id,
+                    session_token: user.session_token
+                });
+            }
+
+            // Generate session token only if one doesn't exist
             const sessionToken = crypto.randomBytes(16).toString('hex');
             console.log('✅ DB: Generated new session token');
 
@@ -148,18 +158,17 @@ const loginUserInDB = (credentials, callback) => {
     });
 };
 
-// In user.server.models.js
+
 const logoutUserInDB = (user_id, session_token, callback) => {
     console.log('🔍 DB: Starting logout process for user:', user_id);
 
-    // First verify that the session token matches
+    // First verify that the session token exists in the database
     const checkSessionSql = `
-        SELECT 1 
+        SELECT user_id 
         FROM users 
-        WHERE user_id = ? 
-        AND session_token = ?`;
+        WHERE session_token = ?`;
 
-    db.get(checkSessionSql, [user_id, session_token], (err, validSession) => {
+    db.get(checkSessionSql, [session_token], (err, row) => {
         if (err) {
             console.error('❌ DB: Error checking session:', err);
             return callback({
@@ -168,8 +177,8 @@ const logoutUserInDB = (user_id, session_token, callback) => {
             });
         }
 
-        if (!validSession) {
-            console.log('❌ DB: Invalid session for user:', user_id);
+        if (!row) {
+            console.log('❌ DB: Invalid session token');
             return callback({
                 status: 401,
                 error_message: 'Invalid session'
@@ -182,23 +191,14 @@ const logoutUserInDB = (user_id, session_token, callback) => {
         const logoutSql = `
             UPDATE users 
             SET session_token = NULL
-            WHERE user_id = ? 
-            AND session_token = ?`;
+            WHERE session_token = ?`;
 
-        db.run(logoutSql, [user_id, session_token], function(err) {
+        db.run(logoutSql, [session_token], function(err) {
             if (err) {
                 console.error('❌ DB: Error during logout:', err);
                 return callback({
                     status: 500,
                     error_message: 'Failed to log out user'
-                });
-            }
-
-            if (this.changes === 0) {
-                console.log('❌ DB: No rows updated during logout');
-                return callback({
-                    status: 401,
-                    error_message: 'Logout failed'
                 });
             }
 

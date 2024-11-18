@@ -7,7 +7,7 @@ const authenticate = require('../lib/authentication');
 // NOTE: Implented Downvote a Question Successfully
 
 module.exports = function(app){
-    app.route('/events/:event_id/question')
+    app.route('/event/:event_id/question')
         .post(authenticate, questions.event_question);
     
     app.route('/question/:question_id')
