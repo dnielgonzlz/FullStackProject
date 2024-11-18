@@ -13,5 +13,5 @@ module.exports = function(app){
         .delete(authenticate, events.delete_event);
 
     app.route('/search')
-        .get(events.search_event);  // Removed authenticate middleware to allow unauthenticated searches
+        .get(events.search_event);
 }
