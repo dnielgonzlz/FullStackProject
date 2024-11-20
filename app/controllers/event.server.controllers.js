@@ -129,6 +129,8 @@ const create_event = (req, res) => {
 
 const get_event = (req, res) => {
     console.log('🚀 GET EVENT: Starting retrieval process');
+    console.log('Debug - req.user_id:', req.user_id);
+    console.log('Debug - auth header:', req.headers['x-authorization']);
     
     // Input validation schema
     const inputSchema = Joi.object({
@@ -185,8 +187,9 @@ const get_event = (req, res) => {
         // Debugging: Log the retrieved row
         console.log('🔍 GET EVENT: Retrieved row from DB:', row);
 
-        // Determine if the requester is the creator with type-safe comparison
-        const isCreator = Number(req.user_id) === Number(row.creator.creator_id);
+        // Determine if the requester is the creator (handle null/undefined user_id case)
+        const isCreator = req.user_id !== null && req.user_id !== undefined && 
+                         Number(req.user_id) === Number(row.creator.creator_id);
         console.log('🔍 GET EVENT: User ID:', req.user_id, 'Creator ID:', row.creator.creator_id, 'isCreator:', isCreator);
 
         // Conditionally include attendees
@@ -203,11 +206,10 @@ const get_event = (req, res) => {
             questions: row.questions
         };
 
+        // Only include attendees if user is the creator
         if (isCreator) {
             response.attendees = row.attendees;
             console.log('🔍 GET EVENT: Included attendees in response');
-        } else {
-            console.log('🔍 GET EVENT: Did not include attendees in response');
         }
 
         // Validate the output against the schema

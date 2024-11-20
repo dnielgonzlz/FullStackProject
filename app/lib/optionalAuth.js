@@ -4,13 +4,14 @@ const optionalAuthenticate = (req, res, next) => {
     const token = req.headers['x-authorization'];
     
     if (!token) {
+        req.user_id = null;
         next();
         return;
     }
 
     users.getIDFromTokenInDB(token, (err, result) => {
         if (err || !result) {
-            // Don't return error, just continue without auth
+            req.user_id = null;
             next();
         } else {
             req.user_id = result.user_id;

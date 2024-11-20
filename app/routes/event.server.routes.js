@@ -8,7 +8,7 @@ module.exports = function(app){
         .post(authenticate, events.create_event);
     
     app.route('/event/:event_id')
-        .get(events.get_event)
+        .get(optionalAuthenticate,events.get_event)
         .patch(authenticate, events.update_single_event)
         .post(authenticate, events.register_attendance_to_event)
         .delete(authenticate, events.delete_event);

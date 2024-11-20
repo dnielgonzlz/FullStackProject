@@ -71,7 +71,7 @@ const getEventFromDB = (event_id, callback) => {
         u.first_name as creator_first_name,
         u.last_name as creator_last_name,
         u.email as creator_email,
-        (SELECT COUNT(*) FROM attendees WHERE event_id = e.event_id) as number_attending,
+        (SELECT COUNT(*) + 1 FROM attendees WHERE event_id = e.event_id) as number_attending,
         COALESCE(
             (
                 SELECT json_group_array(
@@ -82,9 +82,12 @@ const getEventFromDB = (event_id, callback) => {
                         'email', a_user.email
                     )
                 )
-                FROM attendees a
-                JOIN users a_user ON a.user_id = a_user.user_id
-                WHERE a.event_id = e.event_id
+                FROM (
+                    SELECT user_id FROM attendees WHERE event_id = e.event_id
+                    UNION
+                    SELECT e.creator_id
+                ) att
+                JOIN users a_user ON att.user_id = a_user.user_id
             ),
             '[]'
         ) as attendees,
