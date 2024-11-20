@@ -104,7 +104,7 @@ const getEventFromDB = (event_id, callback) => {
                 FROM questions q
                 JOIN users qu ON q.asked_by = qu.user_id
                 WHERE q.event_id = e.event_id
-                ORDER BY q.question_id ASC
+                ORDER BY q.question_id DESC
             ),
             '[]'
         ) as questions
@@ -138,17 +138,22 @@ const getEventFromDB = (event_id, callback) => {
                 row.questions = JSON.parse(row.questions);
             }
 
+            // Sort questions by votes in descending order
+            if (Array.isArray(row.questions)) {
+                row.questions.sort((a, b) => b.votes - a.votes);
+            }
+
             // Format the response object with 'start' instead of 'start_date'
             const formattedRow = {
                 event_id: row.event_id,
                 name: row.name,
                 description: row.description,
                 location: row.location,
-                start: row.start,            // Changed from start_date to start
+                start: row.start,
                 close_registration: row.close_registration,
                 max_attendees: row.max_attendees,
                 creator: {
-                    user_id: row.creator_id,
+                    creator_id: row.creator_id,
                     first_name: row.creator_first_name,
                     last_name: row.creator_last_name,
                     email: row.creator_email
@@ -422,9 +427,10 @@ const archiveEventInDB = (event_id, user_id, callback) => {
 };
 
 const searchEventsInDB = (params, user_id, callback) => {
+    console.log('Debug - Search params:', params);
+    console.log('Debug - User ID:', user_id);
     console.log('🔍 DB: Starting event search');
 
-    // Base query
     let sql = `
         SELECT 
             e.event_id,
@@ -447,41 +453,52 @@ const searchEventsInDB = (params, user_id, callback) => {
     
     const queryParams = [];
 
-    // Add search condition if query provided
     if (params.q) {
         sql += ` AND e.name LIKE ?`;
         queryParams.push(`%${params.q}%`);
     }
 
-    // Add status conditions
-    switch (params.status) {
-        case 'MY_EVENTS':
-            sql += ` AND e.creator_id = ?`;
-            queryParams.push(user_id);
-            break;
-        case 'ATTENDING':
-            sql += ` AND EXISTS (
-                SELECT 1 FROM attendees a 
-                WHERE a.event_id = e.event_id 
-                AND a.user_id = ?
-            )`;
-            queryParams.push(user_id);
-            break;
-        case 'OPEN':
-            sql += ` AND e.close_registration > ?`;
-            queryParams.push(Date.now());
-            break;
-        case 'ARCHIVE':
-            sql += ` AND e.close_registration < ?`;
-            queryParams.push(Date.now());
-            break;
+    // Handle status based on authentication
+    if (params.status) {
+        switch (params.status) {
+            case 'MY_EVENTS':
+                if (!user_id) {
+                    return callback({
+                        status: 401,
+                        error_message: 'Authentication required for MY_EVENTS'
+                    });
+                }
+                sql += ` AND e.creator_id = ?`;
+                queryParams.push(user_id);
+                break;
+            case 'ATTENDING':
+                if (!user_id) {
+                    return callback({
+                        status: 401,
+                        error_message: 'Authentication required for ATTENDING'
+                    });
+                }
+                sql += ` AND EXISTS (
+                    SELECT 1 FROM attendees a 
+                    WHERE a.event_id = e.event_id 
+                    AND a.user_id = ?
+                )`;
+                queryParams.push(user_id);
+                break;
+            case 'OPEN':
+                sql += ` AND e.close_registration > ?`;
+                queryParams.push(Date.now());
+                break;
+            case 'ARCHIVE':
+                sql += ` AND e.close_registration < ?`;
+                queryParams.push(Date.now());
+                break;
+        }
     }
 
-    // Add pagination
     sql += ` ORDER BY e.start DESC LIMIT ? OFFSET ?`;
     queryParams.push(params.limit, params.offset);
 
-    console.log('📝 DB: Executing search query');
     db.all(sql, queryParams, (err, rows) => {
         if (err) {
             console.error('❌ DB: Database error:', err);
@@ -491,9 +508,6 @@ const searchEventsInDB = (params, user_id, callback) => {
             });
         }
 
-        console.log('✅ DB: Search completed, formatting results');
-
-        // Format results to match API response structure
         const events = rows.map(row => ({
             event_id: row.event_id,
             creator: typeof row.creator === 'string' ? 
@@ -509,6 +523,7 @@ const searchEventsInDB = (params, user_id, callback) => {
         return callback(null, events);
     });
 };
+
 
 module.exports = {
     createEventInDB,      // Create a new event

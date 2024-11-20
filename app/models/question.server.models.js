@@ -321,7 +321,7 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
 
         // First check if the question exists
         const checkQuestionSql = `
-            SELECT votes 
+            SELECT 1 
             FROM questions 
             WHERE question_id = ?`;
 
@@ -362,8 +362,8 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                     });
                 }
 
-                if (!existingVote) {
-                    console.log('❌ DB: User has not voted on this question');
+                if (existingVote) {
+                    console.log('❌ DB: User has already voted');
                     db.run('ROLLBACK');
                     return callback({
                         status: 403,
@@ -371,15 +371,15 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                     });
                 }
 
-                // Delete the vote
-                const deleteVoteSql = `
-                    DELETE FROM votes 
-                    WHERE question_id = ? AND voter_id = ?`;
+                // Record the vote
+                const insertVoteSql = `
+                    INSERT INTO votes (question_id, voter_id) 
+                    VALUES (?, ?)`;
 
-                console.log('📝 DB: Removing vote');
-                db.run(deleteVoteSql, [question_id, user_id], (err) => {
+                console.log('📝 DB: Recording vote');
+                db.run(insertVoteSql, [question_id, user_id], (err) => {
                     if (err) {
-                        console.error('❌ DB: Error removing vote:', err);
+                        console.error('❌ DB: Error recording vote:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
@@ -387,11 +387,11 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                         });
                     }
 
-                    // Update the question's vote count
+                    // Update the vote count (decrement)
                     const updateVotesSql = `
                         UPDATE questions 
                         SET votes = votes - 1 
-                        WHERE question_id = ? AND votes > 0`;
+                        WHERE question_id = ?`;
 
                     console.log('📝 DB: Updating vote count');
                     db.run(updateVotesSql, [question_id], function(err) {
@@ -414,7 +414,7 @@ const downvoteQuestionInDB = (question_id, user_id, callback) => {
                                 });
                             }
 
-                            console.log('✅ DB: Vote removed successfully');
+                            console.log('✅ DB: Vote recorded successfully');
                             return callback(null, { status: 200 });
                         });
                     });

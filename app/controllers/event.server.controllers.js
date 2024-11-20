@@ -164,7 +164,7 @@ const get_event = (req, res) => {
         close_registration: Joi.number().integer().required(),
         max_attendees: Joi.number().integer().required(),
         number_attending: Joi.number().integer().required(),
-        attendees: Joi.array().items(Joi.object()).required(),
+        attendees: Joi.array().items(Joi.object()).optional(),
         questions: Joi.array().items(Joi.object()).required()
     });
 
@@ -182,9 +182,37 @@ const get_event = (req, res) => {
             });
         }
 
+        // Debugging: Log the retrieved row
+        console.log('🔍 GET EVENT: Retrieved row from DB:', row);
+
+        // Determine if the requester is the creator with type-safe comparison
+        const isCreator = Number(req.user_id) === Number(row.creator.creator_id);
+        console.log('🔍 GET EVENT: User ID:', req.user_id, 'Creator ID:', row.creator.creator_id, 'isCreator:', isCreator);
+
+        // Conditionally include attendees
+        const response = {
+            event_id: row.event_id,
+            creator: row.creator,
+            name: row.name,
+            description: row.description,
+            location: row.location,
+            start: row.start,
+            close_registration: row.close_registration,
+            max_attendees: row.max_attendees,
+            number_attending: row.number_attending,
+            questions: row.questions
+        };
+
+        if (isCreator) {
+            response.attendees = row.attendees;
+            console.log('🔍 GET EVENT: Included attendees in response');
+        } else {
+            console.log('🔍 GET EVENT: Did not include attendees in response');
+        }
+
         // Validate the output against the schema
         console.log('🔍 GET EVENT: Validating database response');
-        const { error: validationError, value } = eventDetailsSchema.validate(row);
+        const { error: validationError, value } = eventDetailsSchema.validate(response);
         if (validationError) {
             console.log('❌ GET EVENT: Output validation failed:', validationError.message);
             return res.status(500).json({
@@ -475,6 +503,8 @@ const delete_event = (req, res) => {
 // Search for an event
 const search_event = (req, res) => {
     console.log('🚀 SEARCH: Starting event search');
+    console.log('Debug - req.user_id:', req.user_id);
+    console.log('Debug - auth header:', req.headers['x-authorization']);
 
     // Get and validate query parameters
     let limit = parseInt(req.query.limit) || 20;  // Default to 20
