@@ -525,6 +525,7 @@ const searchEventsInDB = (params, user_id, callback) => {
 };
 
 
+
 module.exports = {
     createEventInDB,      // Create a new event
     getEventFromDB,        // Get event details by ID

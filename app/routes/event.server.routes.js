@@ -1,5 +1,6 @@
 const events = require('../controllers/event.server.controllers');
 const authenticate = require('../lib/authentication');
+const optionalAuthenticate = require('../lib/optionalAuth');
 
 module.exports = function(app){
     // BUG: the routes are weird, I need to check why in some parts I use event and in other parts I use events.
@@ -13,5 +14,5 @@ module.exports = function(app){
         .delete(authenticate, events.delete_event);
 
     app.route('/search')
-        .get(events.search_event);
+        .get(optionalAuthenticate, events.search_event);
 }

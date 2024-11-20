@@ -507,8 +507,8 @@ const search_event = (req, res) => {
     console.log('Debug - auth header:', req.headers['x-authorization']);
 
     // Get and validate query parameters
-    let limit = parseInt(req.query.limit) || 20;  // Default to 20
-    let offset = parseInt(req.query.offset) || 0;  // Default to 0
+    let limit = parseInt(req.query.limit) || 20;
+    let offset = parseInt(req.query.offset) || 0;
 
     // Validate limit bounds
     if (limit < 1) limit = 1;
@@ -516,6 +516,13 @@ const search_event = (req, res) => {
 
     // Validate offset bounds
     if (offset < 0) offset = 0;
+
+    // First check if trying to access MY_EVENTS or ATTENDING without authentication
+    if ((req.query.status === 'MY_EVENTS' || req.query.status === 'ATTENDING') && !req.user_id) {
+        return res.status(400).json({
+            error_message: 'Bad Request - Authentication required for this status'
+        });
+    }
 
     const searchParams = {
         q: req.query.q || '',
@@ -552,18 +559,7 @@ const search_event = (req, res) => {
         });
     }
 
-    // Only require authentication for MY_EVENTS and ATTENDING status
-    if (searchParams.status === 'MY_EVENTS' || searchParams.status === 'ATTENDING') {
-        if (!req.user_id) {
-            return res.status(400).json({
-                error_message: 'Unauthorized'
-            });
-        }
-    }
-
-    const user_id = req.user_id || null;
-
-    events.searchEventsInDB(searchParams, user_id, (err, result) => {
+    events.searchEventsInDB(searchParams, req.user_id, (err, result) => {
         if (err) {
             console.log('❌ SEARCH: Error:', err.error_message);
             return res.status(err.status).json({
@@ -575,6 +571,94 @@ const search_event = (req, res) => {
         return res.status(200).json(result);
     });
 };
+
+// The model should also be updated to match this behavior:
+const searchEventsInDB = (params, user_id, callback) => {
+    console.log('Debug - Search params:', params);
+    console.log('Debug - User ID:', user_id);
+    console.log('🔍 DB: Starting event search');
+
+    let sql = `
+        SELECT 
+            e.event_id,
+            e.name,
+            e.description,
+            e.location,
+            e.start,
+            e.close_registration,
+            e.max_attendees,
+            json_object(
+                'creator_id', u.user_id,
+                'first_name', u.first_name,
+                'last_name', u.last_name,
+                'email', u.email
+            ) as creator
+        FROM events e
+        JOIN users u ON e.creator_id = u.user_id
+        WHERE 1=1
+    `;
+    
+    const queryParams = [];
+
+    if (params.q) {
+        sql += ` AND e.name LIKE ?`;
+        queryParams.push(`%${params.q}%`);
+    }
+
+    // Handle status based on authentication
+    if (params.status) {
+        switch (params.status) {
+            case 'MY_EVENTS':
+                sql += ` AND e.creator_id = ?`;
+                queryParams.push(user_id);
+                break;
+            case 'ATTENDING':
+                sql += ` AND EXISTS (
+                    SELECT 1 FROM attendees a 
+                    WHERE a.event_id = e.event_id 
+                    AND a.user_id = ?
+                )`;
+                queryParams.push(user_id);
+                break;
+            case 'OPEN':
+                sql += ` AND e.close_registration > ?`;
+                queryParams.push(Date.now());
+                break;
+            case 'ARCHIVE':
+                sql += ` AND e.close_registration < ?`;
+                queryParams.push(Date.now());
+                break;
+        }
+    }
+
+    sql += ` ORDER BY e.start DESC LIMIT ? OFFSET ?`;
+    queryParams.push(params.limit, params.offset);
+
+    db.all(sql, queryParams, (err, rows) => {
+        if (err) {
+            console.error('❌ DB: Database error:', err);
+            return callback({
+                status: 500,
+                error_message: 'Server Error'
+            });
+        }
+
+        const events = rows.map(row => ({
+            event_id: row.event_id,
+            creator: typeof row.creator === 'string' ? 
+                JSON.parse(row.creator) : row.creator,
+            name: row.name,
+            description: row.description,
+            location: row.location,
+            start: row.start,
+            close_registration: row.close_registration,
+            max_attendees: row.max_attendees
+        }));
+
+        return callback(null, events);
+    });
+};
+
 
 
 module.exports = {
