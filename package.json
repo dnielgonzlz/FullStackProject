@@ -7,7 +7,7 @@
     "wipe": "mocha ./tests/database.refresh.js --reporter spec --log-level=warn --timeout 10000",
     "test": "mocha ./tests/test.*.js --reporter spec --log-level=warn --timeout 10000",
     "dev": "nodemon server.js",
-    "debug" : "nodemon --inspect server.js"
+    "debug": "nodemon --inspect server.js"
   },
   "repository": {
     "type": "git",
@@ -28,6 +28,7 @@
   },
   "homepage": "https://github.com/dnielgonzlz/FullStackProject#readme",
   "dependencies": {
+    "bad-words": "^4.0.0",
     "body-parser": "^1.20.2",
     "chai": "^4.3.8",
     "chai-http": "^4.4.0",
