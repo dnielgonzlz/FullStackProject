@@ -93,6 +93,19 @@ let db = new sqlite3.Database(DBSOURCE, (err) => {
             }
         }
     );
+
+    // Create a table called categories
+    // TODO: Implement categories table
+    db.run(`CREATE TABLE categories (
+        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_name TEXT
+    )`, (err) => {
+        if(err){
+            console.log('Categories table already created');
+        }else{
+            console.log('Categories table created');
+        }
+    });
     }
 });
 

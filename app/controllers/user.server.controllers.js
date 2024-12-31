@@ -145,7 +145,7 @@ const login = (req, res) => {
         }
         console.log('✅ LOGIN: User authenticated successfully, user_id:', result.user_id);
 
-        // 3. If authentication successful, check for existing token
+        // If authentication successful, check for existing token
         console.log('🔍 LOGIN: Checking for existing token');
         users.getTokenFromDB(result.user_id, (tokenErr, tokenResult) => {
             if (tokenErr && tokenErr.status !== 404) {
@@ -165,7 +165,7 @@ const login = (req, res) => {
             }
             console.log('ℹ️ LOGIN: No existing token found, creating new token');
 
-            // 4. If no token exists, create new one
+            // If no token exists, create new one
             const newToken = crypto.randomBytes(16).toString('hex');
             console.log('🔑 LOGIN: Generated new token');
 
@@ -276,8 +276,8 @@ const setToken = (req, res) => {
 
     // Create a random token
     const token = crypto.randomBytes(64).toString('hex');
-
-    setTokenInDB(parseInt(req.params.user_id), token, (err, result) => {
+    
+    users.setTokenInDB(parseInt(req.params.user_id), token, (err, result) => {
         if (err) {
             return res.status(err.status).json({
                 error_message: err.error_message
@@ -347,7 +347,7 @@ const getIDFromToken = (req, res) => {
         });
     }
 
-    getIDFromTokenInDB(token, (err, result) => {
+    users.getIDFromTokenInDB(token, (err, result) => {
         if (err) {
             return res.status(err.status).json({
                 error_message: err.error_message
@@ -359,13 +359,12 @@ const getIDFromToken = (req, res) => {
     });
 };
 
-
 module.exports = {
-    create_account: create_account,
-    login: login,
-    logout: logout,
-    getToken: getToken,
-    setToken: setToken,
-    removeToken: removeToken,
-    getIDFromToken: getIDFromToken
+    create_account,
+    login,
+    logout,
+    getToken,
+    setToken,
+    removeToken,
+    getIDFromToken
 };

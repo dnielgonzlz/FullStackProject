@@ -1,11 +1,6 @@
 const questions = require('../controllers/question.server.controllers');
 const authenticate = require('../lib/authentication');
 
-// NOTE: Implented Ask a Question Successfully
-// NOTE: Implented Delete a Question Successfully
-// NOTE: Implented Upvote a Question Successfully
-// NOTE: Implented Downvote a Question Successfully
-
 module.exports = function(app){
     app.route('/event/:event_id/question')
         .post(authenticate, questions.event_question);

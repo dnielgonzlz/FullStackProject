@@ -8,13 +8,10 @@ const getHash = function(password, salt) {
 };
 
 const createUserInDB = (user, callback) => {
-    console.log('🔍 DB: Starting user creation process');
-
-    // First check if email exists
+    // Check if email exists first
     const checkEmailSql = `SELECT COUNT(*) as count FROM users WHERE email = ?`;
     db.get(checkEmailSql, [user.email.trim().toLowerCase()], (err, row) => {
         if (err) {
-            console.error('❌ DB: Error checking email:', err);
             return callback({
                 status: 500,
                 error_message: 'Server error'
@@ -22,31 +19,29 @@ const createUserInDB = (user, callback) => {
         }
 
         if (row && row.count > 0) {
-            console.log('❌ DB: Email already exists');
             return callback({
                 status: 400,
                 error_message: 'Email already exists'
             });
         }
 
-        // Create salt and hash password 
+        // Create salt and hash password
         const salt = crypto.randomBytes(64);
         const hash = getHash(user.password, salt);
 
+        // Insert the new user
         const sql = `INSERT INTO users (first_name, last_name, email, password, salt)
                      VALUES (?, ?, ?, ?, ?)`;
         const values = [
             user.first_name.trim(),
-            user.last_name.trim(),
+            user.last_name.trim(), 
             user.email.trim().toLowerCase(),
             hash,
             salt.toString('hex')
         ];
-        
-        console.log('📝 DB: Executing insert query');
+
         db.run(sql, values, function(err) {
             if (err) {
-                console.error('❌ DB: Error inserting user:', err);
                 if (err.code === 'SQLITE_CONSTRAINT') {
                     return callback({
                         status: 400,
@@ -59,15 +54,12 @@ const createUserInDB = (user, callback) => {
                 });
             }
 
-            console.log('✅ DB: User created with ID:', this.lastID);
             return callback(null, this.lastID);
         });
     });
 };
 
 const loginUserInDB = (credentials, callback) => {
-    console.log('🔍 DB: Starting user lookup for email:', credentials.email);
-    
     // Normalize email for comparison
     const normalizedEmail = credentials.email.trim().toLowerCase();
     
@@ -77,7 +69,6 @@ const loginUserInDB = (credentials, callback) => {
 
     db.get(sql, [normalizedEmail], (err, user) => {
         if (err) {
-            console.error('❌ DB: Error during user lookup:', err);
             return callback({
                 status: 500,
                 error_message: 'Server error'
@@ -85,14 +76,11 @@ const loginUserInDB = (credentials, callback) => {
         }
 
         if (!user) {
-            console.log('❌ DB: No user found with email:', normalizedEmail);
             return callback({
                 status: 400,
                 error_message: 'Invalid email or password'
             });
         }
-
-        console.log('✅ DB: User found, verifying password');
 
         try {
             // Hash the provided password with stored salt
@@ -103,18 +91,14 @@ const loginUserInDB = (credentials, callback) => {
 
             // Compare password hashes
             if (hashedPassword !== user.password) {
-                console.log('❌ DB: Password mismatch');
                 return callback({
                     status: 400,
                     error_message: 'Invalid email or password'
                 });
             }
 
-            console.log('✅ DB: Password verified successfully');
-
             // If user already has a session token, return it
             if (user.session_token) {
-                console.log('✅ DB: Returning existing session token');
                 return callback(null, {
                     status: 200,
                     user_id: user.user_id,
@@ -124,7 +108,6 @@ const loginUserInDB = (credentials, callback) => {
 
             // Generate session token only if one doesn't exist
             const sessionToken = crypto.randomBytes(16).toString('hex');
-            console.log('✅ DB: Generated new session token');
 
             // Update session token
             const updateSql = `
@@ -134,14 +117,12 @@ const loginUserInDB = (credentials, callback) => {
 
             db.run(updateSql, [sessionToken, user.user_id], function(err) {
                 if (err) {
-                    console.error('❌ DB: Error updating session token:', err);
                     return callback({
                         status: 500,
                         error_message: 'Server error'
                     });
                 }
 
-                console.log('✅ DB: Successfully updated session token');
                 return callback(null, {
                     status: 200,
                     user_id: user.user_id,
@@ -149,7 +130,6 @@ const loginUserInDB = (credentials, callback) => {
                 });
             });
         } catch (error) {
-            console.error('❌ DB: Error during password verification:', error);
             return callback({
                 status: 500,
                 error_message: 'Server error'
@@ -212,13 +192,14 @@ const logoutUserInDB = (user_id, session_token, callback) => {
 };
 
 const getTokenFromDB = (user_id, done) => {
-    // SQL query to get the session token
+    // Get session token for user
     const sql = `
         SELECT session_token 
         FROM users 
         WHERE user_id = ?`;
 
     db.get(sql, [user_id], (err, row) => {
+        // Handle database errors
         if (err) {
             return done({
                 status: 500,
@@ -226,13 +207,15 @@ const getTokenFromDB = (user_id, done) => {
             });
         }
 
+        // Return 404 if no token found
         if (!row || !row.session_token) {
             return done({
-                status: 404,
+                status: 404, 
                 error_message: 'Token not found'
             });
         }
 
+        // Return token if found
         return done(null, {
             status: 200,
             session_token: row.session_token
@@ -241,12 +224,15 @@ const getTokenFromDB = (user_id, done) => {
 };
 
 const setTokenInDB = (user_id, token, callback) => {
+    // SQL query to update user's session token
     const sql = `
         UPDATE users 
         SET session_token = ? 
         WHERE user_id = ?`;
 
+    // Run the update query
     db.run(sql, [token, user_id], function(err) {
+        // Check for database errors
         if (err) {
             return callback({
                 status: 500,
@@ -254,6 +240,7 @@ const setTokenInDB = (user_id, token, callback) => {
             });
         }
 
+        // Check if user exists
         if (this.changes === 0) {
             return callback({
                 status: 404,
@@ -261,21 +248,25 @@ const setTokenInDB = (user_id, token, callback) => {
             });
         }
 
+        // Return success response
         return callback(null, {
             status: 200,
-            message: 'Token set successfully',
+            message: 'Token set successfully', 
             session_token: token
         });
     });
 };
 
 const removeTokenFromDB = (token, callback) => {
+    // SQL query to remove session token
     const sql = `
         UPDATE users 
         SET session_token = NULL 
         WHERE session_token = ?`;
 
+    // Execute query to remove token
     db.run(sql, [token], function(err) {
+        // Handle database errors
         if (err) {
             return callback({
                 status: 500,
@@ -283,6 +274,7 @@ const removeTokenFromDB = (token, callback) => {
             });
         }
 
+        // Check if token existed
         if (this.changes === 0) {
             return callback({
                 status: 404,
@@ -290,6 +282,7 @@ const removeTokenFromDB = (token, callback) => {
             });
         }
 
+        // Return success
         return callback(null, {
             status: 200,
             message: 'Token removed successfully'
@@ -298,12 +291,15 @@ const removeTokenFromDB = (token, callback) => {
 };
 
 const getIDFromTokenInDB = (token, callback) => {
+    // Query to get user ID from session token
     const sql = `
         SELECT user_id 
         FROM users 
         WHERE session_token = ?`;
 
+    // Execute database query
     db.get(sql, [token], (err, row) => {
+        // Handle any database errors
         if (err) {
             return callback({
                 status: 500,
@@ -311,6 +307,7 @@ const getIDFromTokenInDB = (token, callback) => {
             });
         }
 
+        // Return error if token not found
         if (!row) {
             return callback({
                 status: 404,
@@ -318,6 +315,7 @@ const getIDFromTokenInDB = (token, callback) => {
             });
         }
 
+        // Return user ID if found
         return callback(null, {
             status: 200,
             user_id: row.user_id
@@ -327,11 +325,11 @@ const getIDFromTokenInDB = (token, callback) => {
  
  // User Authentication Module
 module.exports = {
-    createUserInDB,    // Create new user account
-    loginUserInDB,     // Log in existing user
-    logoutUserInDB,     // Log out user and invalidate session
-    getTokenFromDB,    // Get session token from user ID
-    setTokenInDB,      // Set session token for user ID
-    removeTokenFromDB, // Remove session token from user ID
-    getIDFromTokenInDB // Get user ID from session token
+    createUserInDB,    
+    loginUserInDB,     
+    logoutUserInDB,    
+    getTokenFromDB,    
+    setTokenInDB,      
+    removeTokenFromDB, 
+    getIDFromTokenInDB 
 };

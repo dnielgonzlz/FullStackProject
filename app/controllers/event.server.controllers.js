@@ -3,8 +3,6 @@ const events = require('../models/event.server.models');
 
 // Create a New Event
 const create_event = (req, res) => {
-    console.log('🚀 EVENT: Starting event creation process');
-
     // Input validation schema
     const eventSchema = Joi.object({
         name: Joi.string()
@@ -75,8 +73,22 @@ const create_event = (req, res) => {
         'object.unknown': 'Invalid property provided'
     });
 
+    // Check start time is in the future
+    const currentTime = Date.now();
+    if (req.body.start <= currentTime) {
+        return res.status(400).json({
+            error_message: 'Event start time must be in the future'
+        });
+    }
 
-    // Get auth token from header
+    // Check close_registration is before start
+    if(req.body.start <= req.body.close_registration){
+        return res.status(400).send({
+            error_message: 'Registration close time must be before event start time'
+        });
+    }
+
+    // Check authentication
     const token = req.headers['x-authorization'];
     if (!token) {
         return res.status(401).json({
@@ -87,39 +99,32 @@ const create_event = (req, res) => {
     // Validate input
     const { error } = eventSchema.validate(req.body);
     if (error) {
-        console.log('❌ EVENT: Validation failed:', error.details[0].message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
-
-    console.log('✅ EVENT: Input validation passed');
 
     // Create event object from validated request body
     const event = {
         name: req.body.name,
         description: req.body.description,
         location: req.body.location,
-        start: req.body.start,                    // Parse string timestamp to integer
-        close_registration: req.body.close_registration,  // Parse string timestamp to integer
+        start: req.body.start,
+        close_registration: req.body.close_registration,
         max_attendees: req.body.max_attendees
     };
 
-    console.log('📝 EVENT: Created event object:', event);
-
-    // Get creator_id from authenticated user (req.user_id is set by authenticate middleware)
+    // Get creator_id from authenticated user
     const creator_id = req.user_id;
 
-    // Call the model function
+    // Create event in database
     events.createEventInDB(event, creator_id, (err, result) => {
         if (err) {
-            console.log('❌ EVENT: Database error:', err);
             return res.status(500).json({
                 error_message: 'Failed to create event'
             });
         }
         
-        console.log('✅ EVENT: Successfully created event with ID:', result.event_id);
         return res.status(201).json({
             event_id: result.event_id
         });
@@ -128,10 +133,6 @@ const create_event = (req, res) => {
 
 
 const get_event = (req, res) => {
-    console.log('🚀 GET EVENT: Starting retrieval process');
-    console.log('Debug - req.user_id:', req.user_id);
-    console.log('Debug - auth header:', req.headers['x-authorization']);
-    
     // Input validation schema
     const inputSchema = Joi.object({
         event_id: Joi.number()
@@ -145,24 +146,21 @@ const get_event = (req, res) => {
     });
 
     // Validate input
-    console.log('🔍 GET EVENT: Validating event ID:', req.params.event_id);
     const { error } = inputSchema.validate({ event_id: parseInt(req.params.event_id) });
     if (error) {
-        console.log('❌ GET EVENT: Input validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
-    console.log('✅ GET EVENT: Input validation passed');
 
-    // Output validation schema - Updated to use 'start' instead of 'start_date'
+    // Output validation schema
     const eventDetailsSchema = Joi.object({
         event_id: Joi.number().integer().required(),
         creator: Joi.object().required(),
         name: Joi.string().required(),
         description: Joi.string().required(),
         location: Joi.string().required(),
-        start: Joi.number().integer().required(),  // Changed from start_date to start
+        start: Joi.number().integer().required(),
         close_registration: Joi.number().integer().required(),
         max_attendees: Joi.number().integer().required(),
         number_attending: Joi.number().integer().required(),
@@ -170,10 +168,8 @@ const get_event = (req, res) => {
         questions: Joi.array().items(Joi.object()).required()
     });
 
-    console.log('🔄 GET EVENT: Calling database function');
     events.getEventFromDB(parseInt(req.params.event_id), (err, row) => {
         if (err) {
-            console.log('❌ GET EVENT: Database error:', err.message);
             if (err.message === 'Event not found') {
                 return res.status(404).json({
                     error_message: 'Event not found'
@@ -184,15 +180,12 @@ const get_event = (req, res) => {
             });
         }
 
-        // Debugging: Log the retrieved row
-        console.log('🔍 GET EVENT: Retrieved row from DB:', row);
-
-        // Determine if the requester is the creator (handle null/undefined user_id case)
-        const isCreator = req.user_id !== null && req.user_id !== undefined && 
+        // Check if user is creator to include attendees
+        const isCreator = req.user_id !== null && 
+                         req.user_id !== undefined && 
                          Number(req.user_id) === Number(row.creator.creator_id);
-        console.log('🔍 GET EVENT: User ID:', req.user_id, 'Creator ID:', row.creator.creator_id, 'isCreator:', isCreator);
 
-        // Conditionally include attendees
+        // Build response object
         const response = {
             event_id: row.event_id,
             creator: row.creator,
@@ -209,28 +202,22 @@ const get_event = (req, res) => {
         // Only include attendees if user is the creator
         if (isCreator) {
             response.attendees = row.attendees;
-            console.log('🔍 GET EVENT: Included attendees in response');
         }
 
-        // Validate the output against the schema
-        console.log('🔍 GET EVENT: Validating database response');
+        // Validate response data
         const { error: validationError, value } = eventDetailsSchema.validate(response);
         if (validationError) {
-            console.log('❌ GET EVENT: Output validation failed:', validationError.message);
             return res.status(500).json({
                 error_message: 'Data validation error'
             });
         }
 
-        console.log('✅ GET EVENT: Successfully retrieved and validated event data');
         return res.status(200).json(value);
     });
 };
 
 // Update an event
 const update_single_event = (req, res) => {
-    console.log('🚀 UPDATE EVENT: Starting update process');
-
     // Input validation schemas
     const paramsSchema = Joi.object({
         event_id: Joi.number()
@@ -287,7 +274,6 @@ const update_single_event = (req, res) => {
                     parseInt(helpers.state.ancestors[0].start) : 
                     null;
                 
-                // Only validate against start time if both are provided
                 if (startTime !== null && regClose >= startTime) {
                     return helpers.error('custom.registrationClose');
                 }
@@ -306,7 +292,7 @@ const update_single_event = (req, res) => {
                 'number.min': 'Maximum attendees must be at least 1'
             })
     })
-    .min(1) // Require at least one field to be present
+    .min(1)
     .messages({
         'object.min': 'At least one field must be provided for update'
     });
@@ -321,7 +307,7 @@ const update_single_event = (req, res) => {
         });
     }
 
-    // If request body is empty, return 400
+    // Check if request body is empty
     if (Object.keys(req.body).length === 0) {
         return res.status(400).json({
             error_message: 'No update data provided'
@@ -336,7 +322,7 @@ const update_single_event = (req, res) => {
         });
     }
 
-    // Convert string timestamps to integers if they exist
+    // Convert timestamps to integers if they exist
     const updatedEvent = { ...req.body };
     if (updatedEvent.start) {
         updatedEvent.start = parseInt(updatedEvent.start);
@@ -370,8 +356,6 @@ const update_single_event = (req, res) => {
 
 // Register Attendenance to an Event
 const register_attendance_to_event = (req, res) => {
-    console.log('🚀 REGISTER: Starting event registration process');
-
     // Input validation schema
     const inputSchema = Joi.object({
         event_id: Joi.number()
@@ -387,13 +371,11 @@ const register_attendance_to_event = (req, res) => {
     });
 
     // Validate event_id from params
-    console.log('🔍 REGISTER: Validating event ID:', req.params.event_id);
     const { error } = inputSchema.validate({ 
         event_id: parseInt(req.params.event_id)
     });
 
     if (error) {
-        console.log('❌ REGISTER: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
@@ -403,14 +385,9 @@ const register_attendance_to_event = (req, res) => {
     const user_id = req.user_id;
     const event_id = parseInt(req.params.event_id);
 
-    console.log('✅ REGISTER: Validation passed, proceeding with registration');
-    console.log('👤 REGISTER: User ID:', user_id);
-    console.log('🎫 REGISTER: Event ID:', event_id);
-
     // First, get event details and check capacity
     events.getEventFromDB(event_id, (err, event) => {
         if (err) {
-            console.log('❌ REGISTER: Error getting event details:', err.message);
             return res.status(404).json({
                 error_message: 'Event not found'
             });
@@ -418,7 +395,6 @@ const register_attendance_to_event = (req, res) => {
 
         // Check if event is at capacity
         if (event.number_attending >= event.max_attendees) {
-            console.log('❌ REGISTER: Event is at capacity');
             return res.status(403).json({
                 error_message: 'Event is at capacity'
             });
@@ -427,8 +403,6 @@ const register_attendance_to_event = (req, res) => {
         // If not at capacity, proceed with registration
         events.registerAttendanceInDB(event_id, user_id, (err, result) => {
             if (err) {
-                console.log('❌ REGISTER: Error:', err.error_message || err.message);
-                
                 switch(err.status) {
                     case 404:
                         return res.status(404).json({
@@ -445,7 +419,6 @@ const register_attendance_to_event = (req, res) => {
                 }
             }
 
-            console.log('✅ REGISTER: Successfully registered for event');
             return res.status(200).json({
                 message: 'Successfully registered for event',
                 event_id: result.event_id,
@@ -457,8 +430,6 @@ const register_attendance_to_event = (req, res) => {
 };
 
 const delete_event = (req, res) => {
-    console.log('🚀 DELETE EVENT: Starting archive process');
-
     // Input validation schema
     const inputSchema = Joi.object({
         event_id: Joi.number()
@@ -475,27 +446,23 @@ const delete_event = (req, res) => {
     // Validate input
     const { error } = inputSchema.validate({ event_id: parseInt(req.params.event_id) });
     if (error) {
-        console.log('❌ DELETE EVENT: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Get user_id from authenticate middleware and parse event_id
     const user_id = req.user_id;
     const event_id = parseInt(req.params.event_id);
 
-    console.log('🔍 DELETE EVENT: Archiving event:', { event_id, user_id });
-
+    // Try to archive the event
     events.archiveEventInDB(event_id, user_id, (err, result) => {
         if (err) {
-            console.log('❌ DELETE EVENT: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
 
-        console.log('✅ DELETE EVENT: Successfully archived event');
         return res.status(200).json({
             message: 'Event successfully archived'
         });
@@ -504,11 +471,7 @@ const delete_event = (req, res) => {
 
 // Search for an event
 const search_event = (req, res) => {
-    console.log('🚀 SEARCH: Starting event search');
-    console.log('Debug - req.user_id:', req.user_id);
-    console.log('Debug - auth header:', req.headers['x-authorization']);
-
-    // Get and validate query parameters
+    // Get and validate query parameters with defaults
     let limit = parseInt(req.query.limit) || 20;
     let offset = parseInt(req.query.offset) || 0;
 
@@ -519,10 +482,10 @@ const search_event = (req, res) => {
     // Validate offset bounds
     if (offset < 0) offset = 0;
 
-    // First check if trying to access MY_EVENTS or ATTENDING without authentication
+    // Check if authentication is required for certain statuses
     if ((req.query.status === 'MY_EVENTS' || req.query.status === 'ATTENDING') && !req.user_id) {
         return res.status(400).json({
-            error_message: 'Bad Request - Authentication required for this status'
+            error_message: 'Authentication required for this status'
         });
     }
 
@@ -555,7 +518,6 @@ const search_event = (req, res) => {
     // Validate input
     const { error } = searchSchema.validate(searchParams);
     if (error) {
-        console.log('❌ SEARCH: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
@@ -563,13 +525,11 @@ const search_event = (req, res) => {
 
     events.searchEventsInDB(searchParams, req.user_id, (err, result) => {
         if (err) {
-            console.log('❌ SEARCH: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
 
-        console.log('✅ SEARCH: Search completed successfully');
         return res.status(200).json(result);
     });
 };
@@ -577,10 +537,10 @@ const search_event = (req, res) => {
 
 
 module.exports = {
-    create_event: create_event,
-    get_event: get_event,
-    update_single_event: update_single_event,
-    register_attendance_to_event: register_attendance_to_event,
-    delete_event: delete_event,
-    search_event: search_event
+    create_event,
+    get_event,
+    update_single_event,
+    register_attendance_to_event,
+    delete_event,
+    search_event
 }

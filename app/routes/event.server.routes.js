@@ -3,7 +3,6 @@ const authenticate = require('../lib/authentication');
 const optionalAuthenticate = require('../lib/optionalAuth');
 
 module.exports = function(app){
-    // BUG: the routes are weird, I need to check why in some parts I use event and in other parts I use events.
     app.route('/events')
         .post(authenticate, events.create_event);
     

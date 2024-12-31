@@ -2,62 +2,41 @@ const Joi = require('joi');
 const db = require('../../database');
 
 const createEventInDB = (event, creator_id, done) => {
-    console.log('🔍 DB: Starting event creation');
+    console.log('Creating new event');
 
-    const sql = `INSERT INTO events (
-        name, 
-        description, 
-        location, 
-        start,           
-        close_registration, 
-        max_attendees,
-        creator_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    // Simple insert query
+    const sql = 'INSERT INTO events (name, description, location, start, close_registration, max_attendees, creator_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
     
-    const params = [
+    // Put all the values in an array
+    const values = [
         event.name,
-        event.description,
+        event.description, 
         event.location,
-        event.start,      
+        event.start,
         event.close_registration,
         event.max_attendees,
         creator_id
     ];
 
-    // Debug log the exact SQL and parameters
-    console.log('📝 DB: SQL Query:', sql);
-    console.log('📝 DB: Parameters:', params);
+    // Log what we're doing
+    console.log('Running insert query');
     
-    // First verify the table exists and its schema
-    db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='events'", [], (err, row) => {
+    // Insert the event into database
+    db.run(sql, values, function(err) {
         if (err) {
-            console.error('❌ DB: Error checking table:', err);
+            console.log('Error creating event:', err);
             return done(err);
         }
-        
-        if (!row) {
-            console.error('❌ DB: Events table does not exist');
-            return done(new Error('Table does not exist'));
-        }
 
-        console.log('📝 DB: Found events table with schema:', row.sql);
-        
-        // Proceed with insert
-        db.run(sql, params, function(err) {
-            if (err) {
-                console.error('❌ DB: Error creating event:', err);
-                console.error('❌ DB: Error details:', err.message);
-                return done(err);
-            }
-            console.log('✅ DB: Event created successfully with ID:', this.lastID);
-            return done(null, { event_id: this.lastID });
+        // Return the new event ID
+        console.log('Event created with ID:', this.lastID);
+        return done(null, { 
+            event_id: this.lastID 
         });
     });
 };
 
 const getEventFromDB = (event_id, callback) => {
-    console.log('🔍 DB: Starting database query for event ID:', event_id);
-
     const sql = `
     SELECT 
         e.event_id,
@@ -115,22 +94,14 @@ const getEventFromDB = (event_id, callback) => {
     JOIN users u ON e.creator_id = u.user_id
     WHERE e.event_id = ?`;
 
-    const params = [event_id];
-    
-    console.log('📝 DB: Executing SQL query with params:', { event_id });
-    
-    db.get(sql, params, (err, row) => {
+    db.get(sql, [event_id], (err, row) => {
         if (err) {
-            console.error('❌ DB: Database error:', err);
             return callback(err);
         }
         
         if (!row) {
-            console.log('❌ DB: Event not found for ID:', event_id);
             return callback(new Error('Event not found'));
         }
-
-        console.log('✅ DB: Raw data retrieved:', row);
 
         try {
             // Parse JSON strings
@@ -141,12 +112,11 @@ const getEventFromDB = (event_id, callback) => {
                 row.questions = JSON.parse(row.questions);
             }
 
-            // Sort questions by votes in descending order
+            // Sort questions by votes
             if (Array.isArray(row.questions)) {
                 row.questions.sort((a, b) => b.votes - a.votes);
             }
 
-            // Format the response object with 'start' instead of 'start_date'
             const formattedRow = {
                 event_id: row.event_id,
                 name: row.name,
@@ -166,20 +136,15 @@ const getEventFromDB = (event_id, callback) => {
                 questions: row.questions
             };
 
-            console.log('✅ DB: Formatted response:', formattedRow);
             return callback(null, formattedRow);
         } catch (parseErr) {
-            console.error('❌ DB: Error processing data:', parseErr);
             return callback(parseErr);
         }
     });
 };
 
 const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
-    console.log('🔍 DB: Starting database update for event ID:', event_id);
-    console.log('👤 DB: Authenticated user ID:', user_id);
-
-    // First check if user is the event creator
+    // Check if user is the event creator
     const checkCreatorSql = `
         SELECT creator_id 
         FROM events 
@@ -187,21 +152,18 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
 
     db.get(checkCreatorSql, [event_id], (err, event) => {
         if (err) {
-            console.error('❌ DB: Error checking event creator:', err);
             return callback(err);
         }
 
         if (!event) {
-            console.log('❌ DB: Event not found');
             return callback(new Error('Event not found'));
         }
 
         if (event.creator_id !== user_id) {
-            console.log('❌ DB: User not authorized to update this event');
             return callback(new Error('Unauthorized to update this event'));
         }
 
-        // Build dynamic UPDATE query based on provided fields
+        // Build update query with provided fields
         const updateFields = [];
         const params = [];
         
@@ -210,22 +172,18 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
             params.push(updatedFields[field]);
         });
         
-        // Add event_id to params
         params.push(event_id);
 
         const updateSql = `
             UPDATE events 
             SET ${updateFields.join(', ')}
             WHERE event_id = ?`;
-        
-        console.log('📝 DB: Executing update query');
+
         db.run(updateSql, params, function(err) {
             if (err) {
-                console.error('❌ DB: Error updating event:', err);
                 return callback(err);
             }
 
-            console.log('✅ DB: Successfully updated event');
             return callback(null, { 
                 event_id: event_id,
                 changes: this.changes
@@ -235,7 +193,7 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
 };
 
 const registerAttendanceInDB = (event_id, user_id, callback) => {
-    // First check if event exists and get its details
+    // Get event details and check if registration is possible
     const checkEventSql = `
         SELECT 
             e.event_id,
@@ -269,7 +227,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
             });
         }
 
-        // Check if registration is closed (either archived or past close date)
+        // Check if registration is closed
         if (event.close_registration === -1 || Date.now() > event.close_registration) {
             return callback({
                 status: 403,
@@ -291,7 +249,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Add 1 to count for the creator who is automatically registered
+            // Add 1 to count for the creator
             if ((result.count + 1) >= event.max_attendees) {
                 return callback({
                     status: 403,
@@ -299,7 +257,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Check if user is already registered
+            // Check if user already registered
             const checkRegistrationSql = `
                 SELECT 1 FROM attendees 
                 WHERE event_id = ? AND user_id = ?`;
@@ -319,7 +277,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                     });
                 }
 
-                // All checks passed, register the user
+                // Register the user
                 const insertSql = `INSERT INTO attendees (event_id, user_id) VALUES (?, ?)`;
                 
                 db.run(insertSql, [event_id, user_id], function(err) {
@@ -342,12 +300,10 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
 };
 
 const archiveEventInDB = (event_id, user_id, callback) => {
-    console.log('🔍 DB: Starting event archive process');
-    
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // First check if the event exists and verify ownership
+        // Check if event exists and verify ownership
         const checkEventSql = `
             SELECT creator_id 
             FROM events 
@@ -355,7 +311,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
 
         db.get(checkEventSql, [event_id], (err, event) => {
             if (err) {
-                console.error('❌ DB: Error checking event:', err);
                 db.run('ROLLBACK');
                 return callback({
                     status: 500,
@@ -364,7 +319,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
             }
 
             if (!event) {
-                console.log('❌ DB: Event not found');
                 db.run('ROLLBACK');
                 return callback({
                     status: 404,
@@ -372,9 +326,7 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Check if the user is the creator of the event
             if (event.creator_id !== user_id) {
-                console.log('❌ DB: Unauthorized - user is not event creator');
                 db.run('ROLLBACK');
                 return callback({
                     status: 403,
@@ -388,10 +340,8 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                 SET close_registration = -1 
                 WHERE event_id = ?`;
 
-            console.log('📝 DB: Archiving event');
             db.run(archiveSql, [event_id], function(err) {
                 if (err) {
-                    console.error('❌ DB: Error archiving event:', err);
                     db.run('ROLLBACK');
                     return callback({
                         status: 500,
@@ -400,7 +350,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                 }
 
                 if (this.changes === 0) {
-                    console.log('❌ DB: No event found to archive');
                     db.run('ROLLBACK');
                     return callback({
                         status: 404,
@@ -410,7 +359,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
 
                 db.run('COMMIT', (err) => {
                     if (err) {
-                        console.error('❌ DB: Error committing transaction:', err);
                         db.run('ROLLBACK');
                         return callback({
                             status: 500,
@@ -418,7 +366,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                         });
                     }
 
-                    console.log('✅ DB: Successfully archived event');
                     return callback(null, {
                         status: 200,
                         message: 'Event successfully archived'
@@ -430,10 +377,6 @@ const archiveEventInDB = (event_id, user_id, callback) => {
 };
 
 const searchEventsInDB = (params, user_id, callback) => {
-    console.log('Debug - Search params:', params);
-    console.log('Debug - User ID:', user_id);
-    console.log('🔍 DB: Starting event search');
-
     let sql = `
         SELECT 
             e.event_id,
@@ -456,12 +399,13 @@ const searchEventsInDB = (params, user_id, callback) => {
     
     const queryParams = [];
 
+    // Add search term if provided
     if (params.q) {
         sql += ` AND e.name LIKE ?`;
         queryParams.push(`%${params.q}%`);
     }
 
-    // Handle status based on authentication
+    // Handle different status filters
     if (params.status) {
         switch (params.status) {
             case 'MY_EVENTS':
@@ -474,6 +418,7 @@ const searchEventsInDB = (params, user_id, callback) => {
                 sql += ` AND e.creator_id = ?`;
                 queryParams.push(user_id);
                 break;
+
             case 'ATTENDING':
                 if (!user_id) {
                     return callback({
@@ -488,10 +433,12 @@ const searchEventsInDB = (params, user_id, callback) => {
                 )`;
                 queryParams.push(user_id);
                 break;
+
             case 'OPEN':
                 sql += ` AND e.close_registration > ?`;
                 queryParams.push(Date.now());
                 break;
+
             case 'ARCHIVE':
                 sql += ` AND e.close_registration < ?`;
                 queryParams.push(Date.now());
@@ -499,18 +446,20 @@ const searchEventsInDB = (params, user_id, callback) => {
         }
     }
 
+    // Add pagination
     sql += ` ORDER BY e.start DESC LIMIT ? OFFSET ?`;
     queryParams.push(params.limit, params.offset);
 
+    // Execute query
     db.all(sql, queryParams, (err, rows) => {
         if (err) {
-            console.error('❌ DB: Database error:', err);
             return callback({
                 status: 500,
                 error_message: 'Server Error'
             });
         }
 
+        // Format the results
         const events = rows.map(row => ({
             event_id: row.event_id,
             creator: typeof row.creator === 'string' ? 
@@ -530,10 +479,10 @@ const searchEventsInDB = (params, user_id, callback) => {
 
 
 module.exports = {
-    createEventInDB,      // Create a new event
-    getEventFromDB,        // Get event details by ID
-    updateEventInDB,     // Update an existing event
-    registerAttendanceInDB, // Register user for event
-    archiveEventInDB,     // Delete an event
-    searchEventsInDB     // Search and filter events
+    createEventInDB,    
+    getEventFromDB,     
+    updateEventInDB,    
+    registerAttendanceInDB,
+    archiveEventInDB,
+    searchEventsInDB
 };

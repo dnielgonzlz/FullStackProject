@@ -75,6 +75,7 @@ const event_question = (req, res) => {
 
 // Deletes a question given an ID. Only creators and authors
 // of questions can delete
+// BUG: Is there an actual validation to check if the user is the creator?
 const delete_question = (req, res) => {
     console.log('🚀 DELETE QUESTION: Starting deletion process');
 
@@ -227,8 +228,8 @@ const downvote_question = (req, res) => {
 
 
 module.exports = {
-    event_question: event_question,
-    delete_question: delete_question,
-    upvote_question: upvote_question,
-    downvote_question: downvote_question
+    event_question,
+    delete_question,
+    upvote_question,
+    downvote_question
 }
