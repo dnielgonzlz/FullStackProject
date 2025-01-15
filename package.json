@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/dnielgonzlz/FullStackProject#readme",
   "dependencies": {
-    "bad-words": "^4.0.0",
+    "bad-words": "^3.0.4",
     "body-parser": "^1.20.2",
     "chai": "^4.3.8",
     "chai-http": "^4.4.0",

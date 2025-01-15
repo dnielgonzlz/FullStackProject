@@ -1,5 +1,6 @@
 const Joi = require('joi');
 const questions = require('../models/question.server.models');
+const {cleanText} = require('../lib/profanity');
 
 // New question related to a particular event
 const event_question = (req, res) => {
@@ -57,7 +58,7 @@ const event_question = (req, res) => {
     const event_id = parseInt(req.params.event_id);
 
     console.log('✅ QUESTION: Validation passed, creating question');
-    questions.askQuestionInDB(event_id, user_id, req.body.question, (err, result) => {
+    questions.askQuestionInDB(event_id, user_id, cleanText(req.body.question), (err, result) => {
         if (err) {
             console.log('❌ QUESTION: Error:', err.error_message);
             return res.status(err.status).json({

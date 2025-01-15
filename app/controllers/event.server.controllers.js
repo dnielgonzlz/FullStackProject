@@ -1,5 +1,9 @@
 const Joi = require('joi');
 const events = require('../models/event.server.models');
+const {cleanText} = require('../lib/profanity');
+
+
+// I had to downgraded the bad-words package to 3.0.4 because the 4.0.0 version was not working with the profanity filter due to ES6 syntax.
 
 // Create a New Event
 const create_event = (req, res) => {
@@ -106,8 +110,10 @@ const create_event = (req, res) => {
 
     // Create event object from validated request body
     const event = {
-        name: req.body.name,
-        description: req.body.description,
+        // Add profanity filter to the name of the event
+
+        name: cleanText(req.body.name),
+        description: cleanText(req.body.description),
         location: req.body.location,
         start: req.body.start,
         close_registration: req.body.close_registration,
@@ -322,13 +328,20 @@ const update_single_event = (req, res) => {
         });
     }
 
-    // Convert timestamps to integers if they exist
+    // Convert timestamps to integers if they exist and clean text fields
     const updatedEvent = { ...req.body };
     if (updatedEvent.start) {
         updatedEvent.start = parseInt(updatedEvent.start);
     }
     if (updatedEvent.close_registration) {
         updatedEvent.close_registration = parseInt(updatedEvent.close_registration);
+    }
+    // Add profanity filter for name and description
+    if (updatedEvent.name) {
+        updatedEvent.name = cleanText(updatedEvent.name);
+    }
+    if (updatedEvent.description) {
+        updatedEvent.description = cleanText(updatedEvent.description);
     }
 
     events.updateEventInDB(parseInt(req.params.event_id), req.user_id, updatedEvent, (err, result) => {
