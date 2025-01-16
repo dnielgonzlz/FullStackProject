@@ -477,9 +477,22 @@ const searchEventsInDB = (params, user_id, callback) => {
 };
 
 const getCategoriesFromDB = (callback) => {
-    const sql = `SELECT category_id, name FROM categories ORDER BY name ASC`;
+    const sql = `
+        SELECT 
+            c.category_id,
+            c.name,
+            (
+                SELECT COUNT(*)
+                FROM event_categories ec
+                JOIN events e ON ec.event_id = e.event_id
+                WHERE ec.category_id = c.category_id
+                AND e.close_registration > ?
+            ) as active_events_count
+        FROM categories c
+        ORDER BY c.name ASC
+    `;
     
-    db.all(sql, [], (err, rows) => {
+    db.all(sql, [Date.now()], (err, rows) => {
         if (err) {
             return callback({
                 status: 500,
@@ -487,7 +500,14 @@ const getCategoriesFromDB = (callback) => {
             });
         }
         
-        return callback(null, rows);
+        // Format the response
+        const categories = rows.map(row => ({
+            category_id: row.category_id,
+            name: row.name,
+            active_events_count: row.active_events_count
+        }));
+        
+        return callback(null, categories);
     });
 };
 
