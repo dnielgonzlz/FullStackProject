@@ -14,4 +14,7 @@ module.exports = function(app){
 
     app.route('/search')
         .get(optionalAuthenticate, events.search_event);
+
+    app.route('/categories')
+    .get(events.get_categories);    
 }

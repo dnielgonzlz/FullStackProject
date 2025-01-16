@@ -93,20 +93,62 @@ let db = new sqlite3.Database(DBSOURCE, (err) => {
             }
         }
     );
+        // Categories table - stores the category definitions
+        db.run(`CREATE TABLE categories (
+            category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        )`, (err) => {
+            if(err){
+                console.log('Categories table already created');
+            }else{
+                console.log('Categories table created');
+                
+                // Insert predefined categories
+                const categories = [
+                    'Conference',
+                    'Workshop',
+                    'Meetup',
+                    'Social',
+                    'Concert',
+                    'Exhibition',
+                    'Sports',
+                    'Other'
+                ];
+                
+                // Prepare the insert statement
+                const stmt = db.prepare('INSERT INTO categories (name) VALUES (?)');
+                
+                // Insert each category
+                categories.forEach(category => {
+                    stmt.run(category, (err) => {
+                        if(err) {
+                            console.log(`Error inserting category ${category}:`, err);
+                        }
+                    });
+                });
+                
+                // Finalize the prepared statement
+                stmt.finalize();
+            }
+        });
 
-    // Create a table called categories
-    // TODO: Implement categories table
-    db.run(`CREATE TABLE categories (
-        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category_name TEXT
-    )`, (err) => {
-        if(err){
-            console.log('Categories table already created');
-        }else{
-            console.log('Categories table created');
-        }
-    });
-    }
+        // Event_Categories junction table - links events with their categories
+        db.run(`CREATE TABLE event_categories (
+            event_id INTEGER,
+            category_id INTEGER,
+            PRIMARY KEY (event_id, category_id),
+            FOREIGN KEY (event_id) REFERENCES events(event_id) 
+                ON DELETE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES categories(category_id) 
+                ON DELETE CASCADE
+        )`, (err) => {
+            if(err){
+                console.log('Event_categories table already created');
+            }else{
+                console.log('Event_categories table created');
+            }
+        });
+}
 });
 
 module.exports = db;

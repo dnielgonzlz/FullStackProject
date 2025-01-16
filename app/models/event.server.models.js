@@ -476,6 +476,21 @@ const searchEventsInDB = (params, user_id, callback) => {
     });
 };
 
+const getCategoriesFromDB = (callback) => {
+    const sql = `SELECT category_id, name FROM categories ORDER BY name ASC`;
+    
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            return callback({
+                status: 500,
+                error_message: 'Database error while retrieving categories'
+            });
+        }
+        
+        return callback(null, rows);
+    });
+};
+
 
 
 module.exports = {
@@ -484,5 +499,6 @@ module.exports = {
     updateEventInDB,    
     registerAttendanceInDB,
     archiveEventInDB,
-    searchEventsInDB
+    searchEventsInDB,
+    getCategoriesFromDB
 };

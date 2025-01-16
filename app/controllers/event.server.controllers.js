@@ -547,6 +547,18 @@ const search_event = (req, res) => {
     });
 };
 
+const get_categories = (req, res) => {
+    events.getCategoriesFromDB((err, categories) => {
+        if (err) {
+            return res.status(err.status).json({
+                error_message: err.error_message
+            });
+        }
+        
+        return res.status(200).json(categories);
+    });
+};
+
 
 
 module.exports = {
@@ -555,5 +567,6 @@ module.exports = {
     update_single_event,
     register_attendance_to_event,
     delete_event,
-    search_event
+    search_event,
+    get_categories
 }
