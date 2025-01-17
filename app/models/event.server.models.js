@@ -35,38 +35,58 @@ const createEventInDB = (event, creator_id, done) => {
 
             const eventId = this.lastID;
 
-            // If there are categories, insert them
+            // If there are categories, insert them one by one
             if (event.categories && event.categories.length > 0) {
-                const categoryValues = event.categories.map(categoryId => 
-                    `(${eventId}, ${categoryId})`
-                ).join(',');
+                // Remove any duplicates from categories array
+                const uniqueCategories = [...new Set(event.categories)];
+                let insertedCount = 0;
+                
+                const insertCategory = (categoryId) => {
+                    const categorySql = `
+                        INSERT OR IGNORE INTO event_categories (event_id, category_id)
+                        VALUES (?, ?)
+                    `;
 
-                const categorySql = `
-                    INSERT INTO event_categories (event_id, category_id)
-                    VALUES ${categoryValues}
-                `;
-
-                db.run(categorySql, [], (err) => {
-                    if (err) {
-                        db.run('ROLLBACK');
-                        console.log('Error linking categories:', err);
-                        return done(err);
-                    }
-
-                    db.run('COMMIT', (err) => {
+                    db.run(categorySql, [eventId, categoryId], (err) => {
                         if (err) {
                             db.run('ROLLBACK');
-                            return done(err);
+                            console.log('Error linking category:', categoryId, err);
+                            return done({
+                                status: 500,
+                                error_message: 'Error linking categories to event'
+                            });
                         }
-                        return done(null, { event_id: eventId });
+
+                        insertedCount++;
+                        if (insertedCount === uniqueCategories.length) {
+                            // All categories have been processed, commit the transaction
+                            db.run('COMMIT', (err) => {
+                                if (err) {
+                                    db.run('ROLLBACK');
+                                    return done({
+                                        status: 500,
+                                        error_message: 'Error committing transaction'
+                                    });
+                                }
+                                return done(null, { event_id: eventId });
+                            });
+                        }
                     });
+                };
+
+                // Process each category
+                uniqueCategories.forEach(categoryId => {
+                    insertCategory(categoryId);
                 });
             } else {
                 // If no categories, just commit the event
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
-                        return done(err);
+                        return done({
+                            status: 500,
+                            error_message: 'Error committing transaction'
+                        });
                     }
                     return done(null, { event_id: eventId });
                 });
