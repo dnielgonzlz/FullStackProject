@@ -348,9 +348,6 @@ export default {
       console.log('6. Processed event data:', this.event);
       console.log('7. Questions:', this.questions);
 
-      await this.loadVoteStatuses();
-      console.log('8. Vote statuses loaded:', this.userVotes);
-
     } catch (err) {
       console.error('❌ Error in created hook:', err);
       this.error = err.error_message || 'Failed to load event details';
@@ -397,28 +394,13 @@ export default {
     },
     async handleQuestionVote(questionId, voteType) {
       try {
-        const currentVote = this.userVotes[questionId] || 0;
-        
         if (voteType === 'up') {
-          if (currentVote === 1) {
-            // Remove upvote
-            await questionsService.removeVote(questionId);
-          } else {
-            // Add upvote
-            await questionsService.upvoteQuestion(questionId);
-          }
+          await questionsService.upvoteQuestion(questionId);
         } else {
-          if (currentVote === -1) {
-            // Remove downvote
-            await questionsService.removeVote(questionId);
-          } else {
-            // Add downvote
-            await questionsService.downvoteQuestion(questionId);
-          }
+          await questionsService.downvoteQuestion(questionId);
         }
         
         await this.refreshEventData();
-        await this.loadVoteStatuses(); // Reload vote statuses
       } catch (err) {
         console.error('Error voting on question:', err);
       }
@@ -511,16 +493,6 @@ export default {
           path: `/event/${this.event.id}`,
           query: { error: err.error_message || 'Failed to register for event' }
         });
-      }
-    },
-    async loadVoteStatuses() {
-      try {
-        for (const question of this.questions) {
-          const status = await questionsService.getVoteStatus(question.question_id);
-          this.$set(this.userVotes, question.question_id, status.vote);
-        }
-      } catch (err) {
-        console.error('Error loading vote statuses:', err);
       }
     },
     async handleEventDeletion() {
@@ -625,13 +597,6 @@ export default {
     },
     getVoteClass() {
       return (questionId, voteType) => {
-        const vote = this.userVotes[questionId] || 0;
-        if (voteType === 'up' && vote === 1) {
-          return 'text-green-500';
-        }
-        if (voteType === 'down' && vote === -1) {
-          return 'text-red-500';
-        }
         return 'text-blue';
       };
     },

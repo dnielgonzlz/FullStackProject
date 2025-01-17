@@ -36,23 +36,6 @@ const deleteQuestion = async (questionId) => {
     throw new Error(error.error_message || 'Failed to delete question');
 };
 
-// Retrieves the current vote status for a question
-const getVoteStatus = async (questionId) => {
-    const token = localStorage.getItem('session_token');
-    const response = await fetch(`http://localhost:3333/question/${questionId}/vote`, {
-        headers: {
-            'X-Authorization': token
-        }
-    });
-
-    if (response.status === 200) {
-        return response.json();
-    }
-    
-    const error = await response.json();
-    throw new Error(error.error_message || 'Failed to get vote status');
-};
-
 // Adds an upvote to a question
 const upvoteQuestion = async (questionId) => {
     const token = localStorage.getItem('session_token');
@@ -89,30 +72,9 @@ const downvoteQuestion = async (questionId) => {
     throw new Error(error.error_message || 'Failed to downvote question');
 };
 
-// Removes a user's vote from a question
-const removeVote = async (questionId) => {
-    const token = localStorage.getItem('session_token');
-    const response = await fetch(`http://localhost:3333/question/${questionId}/vote`, {
-        method: 'DELETE',
-        headers: {
-            'X-Authorization': token
-        }
-    });
-
-    if (response.status === 200) {
-        return true;
-    }
-    
-    const error = await response.json();
-    throw new Error(error.error_message || 'Failed to remove vote');
-};
-
-
 export const questionsService = {
     askQuestion,       
     deleteQuestion,  
     upvoteQuestion,     
-    downvoteQuestion,
-    removeVote,        
-    getVoteStatus     
+    downvoteQuestion
 }; 
