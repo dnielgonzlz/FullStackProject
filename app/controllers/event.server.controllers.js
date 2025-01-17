@@ -69,6 +69,13 @@ const create_event = (req, res) => {
                 'number.base': 'Maximum attendees must be a number',
                 'number.min': 'Maximum attendees must be at least 1',
                 'any.required': 'Maximum attendees is required'
+            }),
+        categories: Joi.array()
+            .items(Joi.number().integer().positive())
+            .optional()
+            .messages({
+                'array.base': 'Categories must be an array',
+                'number.base': 'Category IDs must be numbers'
             })
     })
     .required()
@@ -117,7 +124,8 @@ const create_event = (req, res) => {
         location: req.body.location,
         start: req.body.start,
         close_registration: req.body.close_registration,
-        max_attendees: req.body.max_attendees
+        max_attendees: req.body.max_attendees,
+        categories: req.body.categories || []
     };
 
     // Get creator_id from authenticated user
@@ -548,36 +556,31 @@ const search_event = (req, res) => {
 };
 
 const get_categories = (req, res) => {
-    // Output validation schema
-    const categorySchema = Joi.object({
-        category_id: Joi.number().integer().required(),
-        name: Joi.string().required(),
-        active_events_count: Joi.number().integer().required()
-    });
-
-    const categoriesArraySchema = Joi.array().items(categorySchema);
-
     events.getCategoriesFromDB((err, categories) => {
         if (err) {
             return res.status(err.status || 500).json({
-                error_message: err.error_message || 'Internal server error while retrieving categories'
-            });
-        }
-        
-        // Validate the response data
-        const { error: validationError, value } = categoriesArraySchema.validate(categories);
-        if (validationError) {
-            console.error('Categories validation error:', validationError);
-            return res.status(500).json({
-                error_message: 'Data validation error'
+                error_message: err.error_message || 'Internal server error'
             });
         }
 
-        return res.status(200).json({
-            categories: value,
-            total_categories: value.length,
-            total_active_events: value.reduce((sum, cat) => sum + cat.active_events_count, 0)
-        });
+        // Validate the response
+        const categorySchema = Joi.array().items(
+            Joi.object({
+                category_id: Joi.number().required(),
+                name: Joi.string().required(),
+                active_events_count: Joi.number().required()
+            })
+        );
+
+        const { error, value } = categorySchema.validate(categories);
+        if (error) {
+            console.error('Categories validation error:', error);
+            return res.status(500).json({
+                error_message: 'Error formatting categories'
+            });
+        }
+
+        return res.status(200).json(value);
     });
 };
 

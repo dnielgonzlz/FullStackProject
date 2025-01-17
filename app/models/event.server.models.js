@@ -4,34 +4,73 @@ const db = require('../../database');
 const createEventInDB = (event, creator_id, done) => {
     console.log('Creating new event');
 
-    // Simple insert query
-    const sql = 'INSERT INTO events (name, description, location, start, close_registration, max_attendees, creator_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
-    
-    // Put all the values in an array
-    const values = [
-        event.name,
-        event.description, 
-        event.location,
-        event.start,
-        event.close_registration,
-        event.max_attendees,
-        creator_id
-    ];
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
 
-    // Log what we're doing
-    console.log('Running insert query');
-    
-    // Insert the event into database
-    db.run(sql, values, function(err) {
-        if (err) {
-            console.log('Error creating event:', err);
-            return done(err);
-        }
+        // Insert event
+        const eventSql = `
+            INSERT INTO events (
+                name, description, location, start, 
+                close_registration, max_attendees, creator_id
+            ) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+        
+        const eventValues = [
+            event.name,
+            event.description, 
+            event.location,
+            event.start,
+            event.close_registration,
+            event.max_attendees,
+            creator_id
+        ];
 
-        // Return the new event ID
-        console.log('Event created with ID:', this.lastID);
-        return done(null, { 
-            event_id: this.lastID 
+        db.run(eventSql, eventValues, function(err) {
+            if (err) {
+                db.run('ROLLBACK');
+                console.log('Error creating event:', err);
+                return done(err);
+            }
+
+            const eventId = this.lastID;
+
+            // If there are categories, insert them
+            if (event.categories && event.categories.length > 0) {
+                const categoryValues = event.categories.map(categoryId => 
+                    `(${eventId}, ${categoryId})`
+                ).join(',');
+
+                const categorySql = `
+                    INSERT INTO event_categories (event_id, category_id)
+                    VALUES ${categoryValues}
+                `;
+
+                db.run(categorySql, [], (err) => {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        console.log('Error linking categories:', err);
+                        return done(err);
+                    }
+
+                    db.run('COMMIT', (err) => {
+                        if (err) {
+                            db.run('ROLLBACK');
+                            return done(err);
+                        }
+                        return done(null, { event_id: eventId });
+                    });
+                });
+            } else {
+                // If no categories, just commit the event
+                db.run('COMMIT', (err) => {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        return done(err);
+                    }
+                    return done(null, { event_id: eventId });
+                });
+            }
         });
     });
 };
@@ -481,18 +520,21 @@ const getCategoriesFromDB = (callback) => {
         SELECT 
             c.category_id,
             c.name,
-            (
-                SELECT COUNT(*)
-                FROM event_categories ec
-                JOIN events e ON ec.event_id = e.event_id
-                WHERE ec.category_id = c.category_id
-                AND e.close_registration > ?
-            ) as active_events_count
+            COUNT(DISTINCT CASE 
+                WHEN e.close_registration > ? 
+                THEN ec.event_id 
+                ELSE NULL 
+            END) as active_events_count
         FROM categories c
+        LEFT JOIN event_categories ec ON c.category_id = ec.category_id
+        LEFT JOIN events e ON ec.event_id = e.event_id
+        GROUP BY c.category_id, c.name
         ORDER BY c.name ASC
     `;
     
-    db.all(sql, [Date.now()], (err, rows) => {
+    const currentTimestamp = Date.now();
+    
+    db.all(sql, [currentTimestamp], (err, rows) => {
         if (err) {
             return callback({
                 status: 500,
@@ -500,14 +542,13 @@ const getCategoriesFromDB = (callback) => {
             });
         }
         
-        // Format the response
-        const categories = rows.map(row => ({
-            category_id: row.category_id,
-            name: row.name,
-            active_events_count: row.active_events_count
+        // Ensure active_events_count is a number, defaulting to 0
+        const formattedRows = rows.map(row => ({
+            ...row,
+            active_events_count: parseInt(row.active_events_count) || 0
         }));
         
-        return callback(null, categories);
+        return callback(null, formattedRows);
     });
 };
 
