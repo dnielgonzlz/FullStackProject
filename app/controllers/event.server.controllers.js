@@ -2,12 +2,27 @@ const Joi = require('joi');
 const events = require('../models/event.server.models');
 const {cleanText} = require('../lib/profanity');
 
+/**
+ * Event Controller Module
+ * Handles all event-related operations including creation, retrieval, updates, and deletion.
+ * Uses Joi for input validation and includes profanity filtering for text fields.
+ */
 
-// I had to downgraded the bad-words package to 3.0.4 because the 4.0.0 version was not working with the profanity filter due to ES6 syntax.
-
-// Create a New Event
+/**
+ * Creates a new event with validation and sanitization
+ * @param {Object} req - Request object containing event details in body
+ * @param {Object} res - Response object
+ * 
+ * Validates:
+ * - Event name and description (required, profanity filtered)
+ * - Location (required)
+ * - Start time (must be in future)
+ * - Registration close time (must be 14 days before start)
+ * - Max attendees (positive number)
+ * - Categories (optional array of category IDs)
+ */
 const create_event = (req, res) => {
-    // Input validation schema
+    // Define validation schema for event creation
     const eventSchema = Joi.object({
         name: Joi.string()
             .required()
@@ -31,6 +46,7 @@ const create_event = (req, res) => {
             .pattern(/^\d+$/)
             .required()
             .custom((value, helpers) => {
+                // Validate that event start time is in the future
                 const startTime = parseInt(value);
                 const currentTime = Date.now();
                 
@@ -48,6 +64,7 @@ const create_event = (req, res) => {
             .pattern(/^\d+$/)
             .required()
             .custom((value, helpers) => {
+                // Validate registration close time is before event start and at least 14 days gap
                 const regClose = parseInt(value);
                 const startTime = parseInt(helpers.state.ancestors[0].start);
                 const minimumGap = 14 * 24 * 60 * 60 * 1000; // 14 days in milliseconds
@@ -93,7 +110,7 @@ const create_event = (req, res) => {
             })
     });
 
-    // Validate input
+    // Validate request body against schema
     const { error } = eventSchema.validate(req.body);
     if (error) {
         return res.status(400).json({
@@ -101,10 +118,10 @@ const create_event = (req, res) => {
         });
     }
 
-    // Create event object from validated request body
+    // Create sanitized event object from validated request body
     const event = {
-        name: cleanText(req.body.name),
-        description: cleanText(req.body.description),
+        name: cleanText(req.body.name), // Apply profanity filter
+        description: cleanText(req.body.description), // Apply profanity filter
         location: req.body.location,
         start: req.body.start,
         close_registration: req.body.close_registration,
@@ -112,10 +129,10 @@ const create_event = (req, res) => {
         categories: req.body.categories || []
     };
 
-    // Get creator_id from authenticated user
+    // Get creator_id from authenticated user session
     const creator_id = req.user_id;
 
-    // Create event in database
+    // Attempt to create event in database
     events.createEventInDB(event, creator_id, (err, result) => {
         if (err) {
             return res.status(500).json({
@@ -128,9 +145,20 @@ const create_event = (req, res) => {
     });
 };
 
-
+/**
+ * Retrieves detailed information about a specific event
+ * @param {Object} req - Request object with event_id in params
+ * @param {Object} res - Response object
+ * 
+ * Returns:
+ * - Basic event details
+ * - Creator information
+ * - Attendee count
+ * - Questions
+ * - Full attendee list (only if requester is event creator)
+ */
 const get_event = (req, res) => {
-    // Input validation schema
+    // Validate event ID parameter
     const inputSchema = Joi.object({
         event_id: Joi.number()
             .integer()
@@ -142,7 +170,7 @@ const get_event = (req, res) => {
             })
     });
 
-    // Validate input
+    // Validate input parameters
     const { error } = inputSchema.validate({ event_id: parseInt(req.params.event_id) });
     if (error) {
         return res.status(400).json({
@@ -150,7 +178,7 @@ const get_event = (req, res) => {
         });
     }
 
-    // Output validation schema
+    // Define schema for validating event details response
     const eventDetailsSchema = Joi.object({
         event_id: Joi.number().integer().required(),
         creator: Joi.object().required(),
@@ -165,6 +193,7 @@ const get_event = (req, res) => {
         questions: Joi.array().items(Joi.object()).required()
     });
 
+    // Retrieve event from database
     events.getEventFromDB(parseInt(req.params.event_id), (err, row) => {
         if (err) {
             if (err.message === 'Event not found') {
@@ -177,12 +206,12 @@ const get_event = (req, res) => {
             });
         }
 
-        // Check if user is creator to include attendees
+        // Check if requesting user is the event creator
         const isCreator = req.user_id !== null && 
                          req.user_id !== undefined && 
                          Number(req.user_id) === Number(row.creator.creator_id);
 
-        // Build response object
+        // Construct response object
         const response = {
             event_id: row.event_id,
             creator: row.creator,
@@ -196,12 +225,12 @@ const get_event = (req, res) => {
             questions: row.questions
         };
 
-        // Only include attendees if user is the creator
+        // Only include attendees list if user is the creator
         if (isCreator) {
             response.attendees = row.attendees;
         }
 
-        // Validate response data
+        // Validate response data structure
         const { error: validationError, value } = eventDetailsSchema.validate(response);
         if (validationError) {
             return res.status(500).json({
@@ -213,9 +242,23 @@ const get_event = (req, res) => {
     });
 };
 
-// Update an event
+/**
+ * Updates an existing event's details
+ * @param {Object} req - Request object with event_id in params and updates in body
+ * @param {Object} res - Response object
+ * 
+ * Allows partial updates to:
+ * - Name (profanity filtered)
+ * - Description (profanity filtered)
+ * - Location
+ * - Start time (must be future)
+ * - Registration close time
+ * - Max attendees (must be positive)
+ * 
+ * Only event creator can update
+ */
 const update_single_event = (req, res) => {
-    // Input validation schemas
+    // Validate event ID parameter
     const paramsSchema = Joi.object({
         event_id: Joi.number()
             .integer()
@@ -229,7 +272,7 @@ const update_single_event = (req, res) => {
             })
     });
 
-    // Schema that allows partial updates
+    // Define schema for partial updates
     const eventUpdateSchema = Joi.object({
         name: Joi.string()
             .optional()
@@ -250,6 +293,7 @@ const update_single_event = (req, res) => {
             .pattern(/^\d+$/)
             .optional()
             .custom((value, helpers) => {
+                // Validate start time is in future
                 const startTime = parseInt(value);
                 const currentTime = Date.now();
                 
@@ -266,6 +310,7 @@ const update_single_event = (req, res) => {
             .pattern(/^\d+$/)
             .optional()
             .custom((value, helpers) => {
+                // Validate registration closes before event starts
                 const regClose = parseInt(value);
                 const startTime = helpers.state.ancestors[0].start ? 
                     parseInt(helpers.state.ancestors[0].start) : 
@@ -294,7 +339,7 @@ const update_single_event = (req, res) => {
         'object.min': 'At least one field must be provided for update'
     });
 
-    // Validate event_id
+    // Validate event ID
     const { error: idError } = paramsSchema.validate({ 
         event_id: parseInt(req.params.event_id) 
     });
@@ -304,14 +349,14 @@ const update_single_event = (req, res) => {
         });
     }
 
-    // Check if request body is empty
+    // Check for empty request body
     if (Object.keys(req.body).length === 0) {
         return res.status(400).json({
             error_message: 'No update data provided'
         });
     }
 
-    // Validate request body
+    // Validate update data
     const { error: eventError } = eventUpdateSchema.validate(req.body);
     if (eventError) {
         return res.status(400).json({
@@ -319,7 +364,7 @@ const update_single_event = (req, res) => {
         });
     }
 
-    // Convert timestamps to integers if they exist and clean text fields
+    // Process and sanitize update data
     const updatedEvent = { ...req.body };
     if (updatedEvent.start) {
         updatedEvent.start = parseInt(updatedEvent.start);
@@ -327,7 +372,7 @@ const update_single_event = (req, res) => {
     if (updatedEvent.close_registration) {
         updatedEvent.close_registration = parseInt(updatedEvent.close_registration);
     }
-    // Add profanity filter for name and description
+    // Apply profanity filter to text fields
     if (updatedEvent.name) {
         updatedEvent.name = cleanText(updatedEvent.name);
     }
@@ -335,6 +380,7 @@ const update_single_event = (req, res) => {
         updatedEvent.description = cleanText(updatedEvent.description);
     }
 
+    // Update event in database
     events.updateEventInDB(parseInt(req.params.event_id), req.user_id, updatedEvent, (err, result) => {
         if (err) {
             if (err.message === 'Event not found') {
@@ -358,9 +404,19 @@ const update_single_event = (req, res) => {
     });
 };
 
-// Register Attendenance to an Event
+/**
+ * Registers a user's attendance to an event
+ * @param {Object} req - Request object with event_id in params
+ * @param {Object} res - Response object
+ * 
+ * Checks:
+ * - Event exists
+ * - Event has capacity
+ * - Registration is still open
+ * - User isn't already registered
+ */
 const register_attendance_to_event = (req, res) => {
-    // Input validation schema
+    // Validate event ID parameter
     const inputSchema = Joi.object({
         event_id: Joi.number()
             .integer()
@@ -374,7 +430,7 @@ const register_attendance_to_event = (req, res) => {
             })
     });
 
-    // Validate event_id from params
+    // Validate input
     const { error } = inputSchema.validate({ 
         event_id: parseInt(req.params.event_id)
     });
@@ -385,11 +441,11 @@ const register_attendance_to_event = (req, res) => {
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Get authenticated user ID and event ID
     const user_id = req.user_id;
     const event_id = parseInt(req.params.event_id);
 
-    // First, get event details and check capacity
+    // Check event capacity before registration
     events.getEventFromDB(event_id, (err, event) => {
         if (err) {
             return res.status(404).json({
@@ -397,14 +453,14 @@ const register_attendance_to_event = (req, res) => {
             });
         }
 
-        // Check if event is at capacity
+        // Prevent registration if event is at capacity
         if (event.number_attending >= event.max_attendees) {
             return res.status(403).json({
                 error_message: 'Event is at capacity'
             });
         }
 
-        // If not at capacity, proceed with registration
+        // Process registration
         events.registerAttendanceInDB(event_id, user_id, (err, result) => {
             if (err) {
                 switch(err.status) {
@@ -433,8 +489,16 @@ const register_attendance_to_event = (req, res) => {
     });
 };
 
+/**
+ * Archives (soft deletes) an event
+ * @param {Object} req - Request object with event_id in params
+ * @param {Object} res - Response object
+ * 
+ * Only event creator can archive
+ * Archived events remain in database but aren't shown in regular searches
+ */
 const delete_event = (req, res) => {
-    // Input validation schema
+    // Validate event ID parameter
     const inputSchema = Joi.object({
         event_id: Joi.number()
             .integer()
@@ -455,11 +519,11 @@ const delete_event = (req, res) => {
         });
     }
 
-    // Get user_id from authenticate middleware and parse event_id
+    // Get authenticated user ID and event ID
     const user_id = req.user_id;
     const event_id = parseInt(req.params.event_id);
 
-    // Try to archive the event
+    // Archive the event
     events.archiveEventInDB(event_id, user_id, (err, result) => {
         if (err) {
             return res.status(err.status).json({
@@ -473,26 +537,36 @@ const delete_event = (req, res) => {
     });
 };
 
-// Search for an event
+/**
+ * Searches for events based on various criteria
+ * @param {Object} req - Request object with query parameters
+ * @param {Object} res - Response object
+ * 
+ * Search parameters:
+ * - q: Search text
+ * - status: MY_EVENTS/ATTENDING/OPEN/ARCHIVE
+ * - categories: Comma-separated category IDs
+ * - limit: Results per page (1-100)
+ * - offset: Pagination offset
+ */
 const search_event = (req, res) => {
-    // Get and validate query parameters with defaults
+    // Process and validate pagination parameters
     let limit = parseInt(req.query.limit) || 20;
     let offset = parseInt(req.query.offset) || 0;
 
-    // Validate limit bounds
+    // Enforce pagination limits
     if (limit < 1) limit = 1;
     if (limit > 100) limit = 100;
-
-    // Validate offset bounds
     if (offset < 0) offset = 0;
 
-    // Check if authentication is required for certain statuses
+    // Check authentication for restricted searches
     if ((req.query.status === 'MY_EVENTS' || req.query.status === 'ATTENDING') && !req.user_id) {
         return res.status(400).json({
             error_message: 'Authentication required for this status'
         });
     }
 
+    // Prepare search parameters
     const searchParams = {
         q: req.query.q || '',
         status: req.query.status,
@@ -501,7 +575,7 @@ const search_event = (req, res) => {
         offset: offset
     };
 
-    // Input validation schema
+    // Validate search parameters
     const searchSchema = Joi.object({
         q: Joi.string()
             .allow('')
@@ -523,7 +597,7 @@ const search_event = (req, res) => {
             .default(0)
     });
 
-    // Validate input
+    // Validate search parameters
     const { error } = searchSchema.validate(searchParams);
     if (error) {
         return res.status(400).json({
@@ -531,6 +605,7 @@ const search_event = (req, res) => {
         });
     }
 
+    // Execute search
     events.searchEventsInDB(searchParams, req.user_id, (err, result) => {
         if (err) {
             return res.status(err.status).json({
@@ -542,7 +617,18 @@ const search_event = (req, res) => {
     });
 };
 
+/**
+ * Retrieves list of all event categories with active event counts
+ * @param {Object} req - Request object
+ * @param {Object} res - Response object
+ * 
+ * Returns array of:
+ * - category_id
+ * - name
+ * - active_events_count
+ */
 const get_categories = (req, res) => {
+    // Retrieve categories from database
     events.getCategoriesFromDB((err, categories) => {
         if (err) {
             return res.status(err.status || 500).json({
@@ -550,7 +636,7 @@ const get_categories = (req, res) => {
             });
         }
 
-        // Validate the response
+        // Validate category data structure
         const categorySchema = Joi.array().items(
             Joi.object({
                 category_id: Joi.number().required(),
@@ -559,6 +645,7 @@ const get_categories = (req, res) => {
             })
         );
 
+        // Validate response data
         const { error, value } = categorySchema.validate(categories);
         if (error) {
             console.error('Categories validation error:', error);
@@ -570,8 +657,6 @@ const get_categories = (req, res) => {
         return res.status(200).json(value);
     });
 };
-
-
 
 module.exports = {
     create_event,

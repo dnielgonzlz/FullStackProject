@@ -2,12 +2,10 @@ const Joi = require('joi');
 const db = require('../../database');
 
 const createEventInDB = (event, creator_id, done) => {
-    console.log('Creating new event');
-
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // Insert event
+        // Insert base event details into events table
         const eventSql = `
             INSERT INTO events (
                 name, description, location, start, 
@@ -29,15 +27,13 @@ const createEventInDB = (event, creator_id, done) => {
         db.run(eventSql, eventValues, function(err) {
             if (err) {
                 db.run('ROLLBACK');
-                console.log('Error creating event:', err);
                 return done(err);
             }
 
             const eventId = this.lastID;
 
-            // If there are categories, insert them one by one
+            // Process categories if provided
             if (event.categories && event.categories.length > 0) {
-                // Remove any duplicates from categories array
                 const uniqueCategories = [...new Set(event.categories)];
                 let insertedCount = 0;
                 
@@ -50,7 +46,6 @@ const createEventInDB = (event, creator_id, done) => {
                     db.run(categorySql, [eventId, categoryId], (err) => {
                         if (err) {
                             db.run('ROLLBACK');
-                            console.log('Error linking category:', categoryId, err);
                             return done({
                                 status: 500,
                                 error_message: 'Error linking categories to event'
@@ -59,7 +54,7 @@ const createEventInDB = (event, creator_id, done) => {
 
                         insertedCount++;
                         if (insertedCount === uniqueCategories.length) {
-                            // All categories have been processed, commit the transaction
+                            // Commit transaction after all categories are processed
                             db.run('COMMIT', (err) => {
                                 if (err) {
                                     db.run('ROLLBACK');
@@ -74,12 +69,11 @@ const createEventInDB = (event, creator_id, done) => {
                     });
                 };
 
-                // Process each category
                 uniqueCategories.forEach(categoryId => {
                     insertCategory(categoryId);
                 });
             } else {
-                // If no categories, just commit the event
+                // Commit transaction if no categories to process
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
@@ -95,7 +89,9 @@ const createEventInDB = (event, creator_id, done) => {
     });
 };
 
+// Retrieves complete event details including attendees and questions
 const getEventFromDB = (event_id, callback) => {
+    // Complex query to fetch event details, creator info, attendees, and questions
     const sql = `
     SELECT 
         e.event_id,
@@ -163,7 +159,7 @@ const getEventFromDB = (event_id, callback) => {
         }
 
         try {
-            // Parse JSON strings
+            // Convert JSON strings to objects for attendees and questions
             if (typeof row.attendees === 'string') {
                 row.attendees = JSON.parse(row.attendees);
             }
@@ -171,11 +167,12 @@ const getEventFromDB = (event_id, callback) => {
                 row.questions = JSON.parse(row.questions);
             }
 
-            // Sort questions by votes
+            // Sort questions by vote count in descending order
             if (Array.isArray(row.questions)) {
                 row.questions.sort((a, b) => b.votes - a.votes);
             }
 
+            // Format response object with nested structure
             const formattedRow = {
                 event_id: row.event_id,
                 name: row.name,
@@ -202,8 +199,9 @@ const getEventFromDB = (event_id, callback) => {
     });
 };
 
+// Updates event details after verifying creator permissions
 const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
-    // Check if user is the event creator
+    // Verify user is the event creator before allowing updates
     const checkCreatorSql = `
         SELECT creator_id 
         FROM events 
@@ -222,7 +220,7 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
             return callback(new Error('Unauthorized to update this event'));
         }
 
-        // Build update query with provided fields
+        // Dynamically build update query based on provided fields
         const updateFields = [];
         const params = [];
         
@@ -251,8 +249,9 @@ const updateEventInDB = (event_id, user_id, updatedFields, callback) => {
     });
 };
 
+// Handles user registration for an event with capacity and timing checks
 const registerAttendanceInDB = (event_id, user_id, callback) => {
-    // Get event details and check if registration is possible
+    // Check event details and registration eligibility
     const checkEventSql = `
         SELECT 
             e.event_id,
@@ -271,6 +270,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
             });
         }
 
+        // Verify event exists and perform registration checks
         if (!event) {
             return callback({
                 status: 404,
@@ -278,7 +278,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
             });
         }
 
-        // Check if user is the creator
+        // Prevent creator from registering as attendee
         if (event.creator_id === user_id) {
             return callback({
                 status: 403,
@@ -286,7 +286,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
             });
         }
 
-        // Check if registration is closed
+        // Check if registration period is still open
         if (event.close_registration === -1 || Date.now() > event.close_registration) {
             return callback({
                 status: 403,
@@ -294,7 +294,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
             });
         }
 
-        // Check if event is at capacity
+        // Verify event capacity
         const checkCapacitySql = `
             SELECT COUNT(*) as count 
             FROM attendees 
@@ -308,7 +308,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Add 1 to count for the creator
+            // Check if event is at capacity (including creator)
             if ((result.count + 1) >= event.max_attendees) {
                 return callback({
                     status: 403,
@@ -316,7 +316,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Check if user already registered
+            // Check for existing registration
             const checkRegistrationSql = `
                 SELECT 1 FROM attendees 
                 WHERE event_id = ? AND user_id = ?`;
@@ -336,7 +336,7 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
                     });
                 }
 
-                // Register the user
+                // Register user for the event
                 const insertSql = `INSERT INTO attendees (event_id, user_id) VALUES (?, ?)`;
                 
                 db.run(insertSql, [event_id, user_id], function(err) {
@@ -358,11 +358,12 @@ const registerAttendanceInDB = (event_id, user_id, callback) => {
     });
 };
 
+// Archives an event by setting close_registration to -1
 const archiveEventInDB = (event_id, user_id, callback) => {
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // Check if event exists and verify ownership
+        // Verify event ownership before archiving
         const checkEventSql = `
             SELECT creator_id 
             FROM events 
@@ -377,6 +378,7 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                 });
             }
 
+            // Verify event exists and user has permission
             if (!event) {
                 db.run('ROLLBACK');
                 return callback({
@@ -393,7 +395,7 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                 });
             }
 
-            // Archive the event by setting close_registration to -1
+            // Archive the event
             const archiveSql = `
                 UPDATE events 
                 SET close_registration = -1 
@@ -416,6 +418,7 @@ const archiveEventInDB = (event_id, user_id, callback) => {
                     });
                 }
 
+                // Commit the transaction
                 db.run('COMMIT', (err) => {
                     if (err) {
                         db.run('ROLLBACK');
@@ -435,8 +438,9 @@ const archiveEventInDB = (event_id, user_id, callback) => {
     });
 };
 
+// Searches events based on various filters and parameters
 const searchEventsInDB = (params, user_id, callback) => {
-
+    // Base query with joins for related data
     let sql = `
         SELECT DISTINCT
             e.event_id,
@@ -460,18 +464,17 @@ const searchEventsInDB = (params, user_id, callback) => {
     
     const queryParams = [];
 
-    // Add search term if provided
+    // Add search filters based on parameters
     if (params.q) {
         sql += ` AND (e.name LIKE ? OR e.description LIKE ? OR e.location LIKE ?)`;
         queryParams.push(`%${params.q}%`, `%${params.q}%`, `%${params.q}%`);
     }
 
-    // Add category filter if provided
     if (params.categories && params.categories.length > 0) {
         sql += ` AND ec.category_id IN (${params.categories.join(',')})`;
     }
 
-    // Handle different status filters
+    // Apply status filters
     if (params.status) {
         switch (params.status) {
             case 'MY_EVENTS':
@@ -484,7 +487,6 @@ const searchEventsInDB = (params, user_id, callback) => {
                 sql += ` AND e.creator_id = ?`;
                 queryParams.push(user_id);
                 break;
-
             case 'ATTENDING':
                 if (!user_id) {
                     return callback({
@@ -499,12 +501,10 @@ const searchEventsInDB = (params, user_id, callback) => {
                 )`;
                 queryParams.push(user_id);
                 break;
-
             case 'OPEN':
                 sql += ` AND e.close_registration > ?`;
                 queryParams.push(Date.now());
                 break;
-
             case 'ARCHIVE':
                 sql += ` AND e.close_registration < ?`;
                 queryParams.push(Date.now());
@@ -516,7 +516,7 @@ const searchEventsInDB = (params, user_id, callback) => {
     sql += ` GROUP BY e.event_id ORDER BY e.start DESC LIMIT ? OFFSET ?`;
     queryParams.push(params.limit, params.offset);
 
-    // Execute query
+    // Execute search query
     db.all(sql, queryParams, (err, rows) => {
         if (err) {
             return callback({
@@ -525,7 +525,7 @@ const searchEventsInDB = (params, user_id, callback) => {
             });
         }
 
-        // Format the results
+        // Format results
         const events = rows.map(row => ({
             event_id: row.event_id,
             creator: typeof row.creator === 'string' ? 
@@ -541,6 +541,7 @@ const searchEventsInDB = (params, user_id, callback) => {
     });
 };
 
+// Retrieves all categories with count of active events
 const getCategoriesFromDB = (callback) => {
     const sql = `
         SELECT 
@@ -568,7 +569,7 @@ const getCategoriesFromDB = (callback) => {
             });
         }
         
-        // Ensure active_events_count is a number, defaulting to 0
+        // Format category counts
         const formattedRows = rows.map(row => ({
             ...row,
             active_events_count: parseInt(row.active_events_count) || 0
@@ -577,8 +578,6 @@ const getCategoriesFromDB = (callback) => {
         return callback(null, formattedRows);
     });
 };
-
-
 
 module.exports = {
     createEventInDB,    

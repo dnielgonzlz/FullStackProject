@@ -2,10 +2,11 @@ const crypto = require('crypto');
 const Joi = require('joi');
 const users = require('../models/user.server.models');
 
+// Creates a new user account with validation
+// Handles password requirements and duplicate email checks
 const create_account = (req, res) => {
-    console.log('🚀 CREATE: Starting user account creation');
-
-    // Input validation schema with exact test requirements
+    // Validation schema for new user registration
+    // Requires first name, last name, email, and strong password
     const userSchema = Joi.object({
         first_name: Joi.string()
             .required()
@@ -39,6 +40,7 @@ const create_account = (req, res) => {
                 'any.required': 'Email is required'
             }),
 
+        // Password must contain lowercase, uppercase, number, and special character
         password: Joi.string()
             .required()
             .min(8)
@@ -64,18 +66,15 @@ const create_account = (req, res) => {
         'object.unknown': 'Invalid property provided'
     });
 
-    // Validate input
+    // Validate user input against schema
     const { error } = userSchema.validate(req.body, { abortEarly: true });
     if (error) {
-        console.log('❌ CREATE: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
-
-    console.log('✅ CREATE: Validation passed');
         
-    // Proceed with user creation
+    // Create user object and save to database
     const user = {
         first_name: req.body.first_name,
         last_name: req.body.last_name,
@@ -85,25 +84,21 @@ const create_account = (req, res) => {
 
     users.createUserInDB(user, (err, result) => {
         if (err) {
-            console.error('❌ CREATE: Database error:', err);
             return res.status(err.status || 500).json({
                 error_message: err.error_message || 'Server error'
             });
         }
 
-        console.log('✅ CREATE: User created successfully');
         return res.status(201).json({
             user_id: result
         });
     });
 };
 
-
-
+// Authenticates user login and manages session tokens
+// Creates new token if none exists, returns existing token if valid
 const login = (req, res) => {
-    console.log('🚀 LOGIN: Starting login process');
-
-    // Input validation schema
+    // Validation schema for login credentials
     const loginSchema = Joi.object({
         email: Joi.string()
             .required()
@@ -123,61 +118,50 @@ const login = (req, res) => {
             })
     })
     .required()
-    .unknown(false); // Disallow extra fields
+    .unknown(false);
 
-    // Validate input
+    // Validate login credentials
     const { error } = loginSchema.validate(req.body);
     if (error) {
-        console.log('❌ LOGIN: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
-    console.log('✅ LOGIN: Input validation passed');
 
-    // Pass the credentials from request body to the model function
+    // Authenticate user and manage token
     users.loginUserInDB(req.body, (err, result) => {
         if (err) {
-            console.log('❌ LOGIN: Authentication failed:', err);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-        console.log('✅ LOGIN: User authenticated successfully, user_id:', result.user_id);
 
-        // If authentication successful, check for existing token
-        console.log('🔍 LOGIN: Checking for existing token');
+        // Check for existing valid token
         users.getTokenFromDB(result.user_id, (tokenErr, tokenResult) => {
             if (tokenErr && tokenErr.status !== 404) {
-                console.log('❌ LOGIN: Error checking existing token:', tokenErr);
                 return res.status(tokenErr.status).json({
                     error_message: tokenErr.error_message
                 });
             }
 
-            // If token exists, return it
+            // Return existing token if valid
             if (tokenResult && tokenResult.session_token) {
-                console.log('✅ LOGIN: Existing token found and returned');
                 return res.status(200).json({
                     user_id: result.user_id,
                     session_token: tokenResult.session_token
                 });
             }
-            console.log('ℹ️ LOGIN: No existing token found, creating new token');
 
-            // If no token exists, create new one
+            // Generate new token if none exists
             const newToken = crypto.randomBytes(16).toString('hex');
-            console.log('🔑 LOGIN: Generated new token');
 
             users.setTokenInDB(result.user_id, newToken, (setTokenErr, setTokenResult) => {
                 if (setTokenErr) {
-                    console.log('❌ LOGIN: Error setting new token:', setTokenErr);
                     return res.status(setTokenErr.status).json({
                         error_message: setTokenErr.error_message
                     });
                 }
 
-                console.log('✅ LOGIN: New token set successfully');
                 return res.status(200).json({
                     user_id: result.user_id,
                     session_token: newToken
@@ -187,39 +171,32 @@ const login = (req, res) => {
     });
 };
 
+// Handles user logout by invalidating their session token
 const logout = (req, res) => {
-    console.log('🚀 LOGOUT: Starting logout process');
-    
-    // Get token from authorization header
     const token = req.headers['x-authorization'];
     if (!token) {
-        console.log('❌ LOGOUT: No token provided');
         return res.status(401).json({
             error_message: 'Unauthorized'
         });
     }
 
-    // Get user_id from authenticate middleware
     const user_id = req.user_id;
 
     users.logoutUserInDB(user_id, token, (err, result) => {
         if (err) {
-            console.log('❌ LOGOUT: Error during logout:', err);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-        console.log('✅ LOGOUT: Successfully logged out user:', user_id);
         return res.status(200).json({
             message: 'User logged out successfully'
         });
     });
 };
 
-
-
+// Retrieves existing session token for a user
 const getToken = (req, res) => {
-    // Input validation schema
+    // Validate user ID format
     const inputSchema = Joi.object({
         user_id: Joi.number()
             .integer()
@@ -232,7 +209,6 @@ const getToken = (req, res) => {
             })
     });
 
-    // Validate input
     const { error } = inputSchema.validate({ user_id: req.params.user_id });
     if (error) {
         return res.status(400).json({
@@ -252,8 +228,9 @@ const getToken = (req, res) => {
     });
 };
 
+// Creates new session token for a user
 const setToken = (req, res) => {
-    // Input validation schema
+    // Validate user ID format
     const inputSchema = Joi.object({
         user_id: Joi.number()
             .integer()
@@ -266,7 +243,6 @@ const setToken = (req, res) => {
             })
     });
 
-    // Validate input
     const { error } = inputSchema.validate({ user_id: req.params.user_id });
     if (error) {
         return res.status(400).json({
@@ -274,7 +250,7 @@ const setToken = (req, res) => {
         });
     }
 
-    // Create a random token
+    // Generate new random token
     const token = crypto.randomBytes(64).toString('hex');
     
     users.setTokenInDB(parseInt(req.params.user_id), token, (err, result) => {
@@ -289,9 +265,9 @@ const setToken = (req, res) => {
     });
 };
 
-
+// Invalidates a specific session token
 const removeToken = (req, res) => {
-    // Input validation schema
+    // Validate token format
     const inputSchema = Joi.object({
         token: Joi.string()
             .required()
@@ -301,10 +277,8 @@ const removeToken = (req, res) => {
             })
     });
 
-    // Get token from authorization header
     const token = req.headers['x-authorization'];
 
-    // Validate input
     const { error } = inputSchema.validate({ token });
     if (error) {
         return res.status(400).json({
@@ -324,9 +298,9 @@ const removeToken = (req, res) => {
     });
 };
 
-
+// Retrieves user ID associated with a session token
 const getIDFromToken = (req, res) => {
-    // Input validation schema
+    // Validate token format
     const inputSchema = Joi.object({
         token: Joi.string()
             .required()
@@ -336,10 +310,8 @@ const getIDFromToken = (req, res) => {
             })
     });
 
-    // Get token from authorization header
     const token = req.headers['x-authorization'];
 
-    // Validate input
     const { error } = inputSchema.validate({ token });
     if (error) {
         return res.status(400).json({

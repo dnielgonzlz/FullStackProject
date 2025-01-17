@@ -2,11 +2,10 @@ const Joi = require('joi');
 const questions = require('../models/question.server.models');
 const {cleanText} = require('../lib/profanity');
 
-// New question related to a particular event
+// Handles creation of new questions for events
+// Validates input, filters profanity, and saves to database
 const event_question = (req, res) => {
-    console.log('🚀 QUESTION: Starting question creation process');
-
-    // Input validation schemas
+    // Validation schema for question content
     const inputSchema = Joi.object({
         question: Joi.string()
             .required()
@@ -20,6 +19,7 @@ const event_question = (req, res) => {
             })
     });
 
+    // Validation schema for event ID parameter
     const eventIdSchema = Joi.object({
         event_id: Joi.number()
             .integer()
@@ -32,55 +32,44 @@ const event_question = (req, res) => {
             })
     });
 
-    // Validate event_id from params
+    // Validate event ID from URL parameters
     const { error: eventIdError } = eventIdSchema.validate({ 
         event_id: parseInt(req.params.event_id) 
     });
     
     if (eventIdError) {
-        console.log('❌ QUESTION: Invalid event ID:', eventIdError.message);
         return res.status(400).json({
             error_message: eventIdError.details[0].message
         });
     }
 
-    // Validate question data
+    // Validate question content
     const { error: questionError } = inputSchema.validate(req.body);
     if (questionError) {
-        console.log('❌ QUESTION: Invalid question data:', questionError.message);
         return res.status(400).json({
             error_message: questionError.details[0].message
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Process and save the question
     const user_id = req.user_id;
     const event_id = parseInt(req.params.event_id);
-
-    console.log('✅ QUESTION: Validation passed, creating question');
     questions.askQuestionInDB(event_id, user_id, cleanText(req.body.question), (err, result) => {
         if (err) {
-            console.log('❌ QUESTION: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-
-        console.log('✅ QUESTION: Question created successfully');
         return res.status(201).json({
             question_id: result.question_id
         });
     });
 };
 
-
-// Deletes a question given an ID. Only creators and authors
-// of questions can delete
-// BUG: Is there an actual validation to check if the user is the creator?
+// Handles question deletion
+// Verifies user permissions before deletion
 const delete_question = (req, res) => {
-    console.log('🚀 DELETE QUESTION: Starting deletion process');
-
-    // Input validation schema
+    // Validation schema for question ID
     const inputSchema = Joi.object({
         question_id: Joi.number()
             .integer()
@@ -93,46 +82,35 @@ const delete_question = (req, res) => {
             })
     });
 
-    // Validate input
+    // Validate question ID from parameters
     const { error } = inputSchema.validate({ 
         question_id: parseInt(req.params.question_id) 
     });
 
     if (error) {
-        console.log('❌ DELETE QUESTION: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Process deletion request
     const user_id = req.user_id;
     const question_id = parseInt(req.params.question_id);
-
-    console.log('✅ DELETE QUESTION: Validation passed, proceeding with deletion');
 
     questions.deleteQuestionFromDB(question_id, user_id, (err, result) => {
         if (err) {
-            console.log('❌ DELETE QUESTION: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-
-        console.log('✅ DELETE QUESTION: Question deleted successfully');
-        return res.status(200).json(); // Return empty response with 200 OK as per API docs
+        return res.status(200).json(); 
     });
 };
 
-
-
-// Upvotes a question given an ID. You may upvote your own questions, 
-// but you can not vote on the same question twice
-
+// Handles upvoting questions
+// Prevents duplicate votes from the same user
 const upvote_question = (req, res) => {
-    console.log('🚀 UPVOTE: Starting upvote process');
-
-    // Input validation schema
+    // Validation schema for question ID
     const inputSchema = Joi.object({
         question_id: Joi.number()
             .integer()
@@ -145,45 +123,35 @@ const upvote_question = (req, res) => {
             })
     });
 
-    // Validate input
+    // Validate question ID from parameters
     const { error } = inputSchema.validate({ 
         question_id: parseInt(req.params.question_id) 
     });
 
     if (error) {
-        console.log('❌ UPVOTE: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Process upvote request
     const user_id = req.user_id;
     const question_id = parseInt(req.params.question_id);
-
-    console.log('✅ UPVOTE: Validation passed');
 
     questions.upvoteQuestionInDB(question_id, user_id, (err, result) => {
         if (err) {
-            console.log('❌ UPVOTE: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-
-        console.log('✅ UPVOTE: Vote recorded successfully');
-        return res.status(200).json(); // Empty response with 200 OK as per API docs
+        return res.status(200).json(); 
     });
 };
 
-
-
-// Downvotes a question given an ID. You may downvote your own questions, 
-// but you can not vote on the same question twice
+// Handles downvoting questions
+// Prevents duplicate votes from the same user
 const downvote_question = (req, res) => {
-    console.log('🚀 DOWNVOTE: Starting downvote process');
-
-    // Input validation schema
+    // Validation schema for question ID
     const inputSchema = Joi.object({
         question_id: Joi.number()
             .integer()
@@ -196,37 +164,30 @@ const downvote_question = (req, res) => {
             })
     });
 
-    // Validate input
+    // Validate question ID from parameters
     const { error } = inputSchema.validate({ 
         question_id: parseInt(req.params.question_id) 
     });
 
     if (error) {
-        console.log('❌ DOWNVOTE: Validation failed:', error.message);
         return res.status(400).json({
             error_message: error.details[0].message
         });
     }
 
-    // Get user_id from authenticate middleware
+    // Process downvote request
     const user_id = req.user_id;
     const question_id = parseInt(req.params.question_id);
 
-    console.log('✅ DOWNVOTE: Validation passed');
-
     questions.downvoteQuestionInDB(question_id, user_id, (err, result) => {
         if (err) {
-            console.log('❌ DOWNVOTE: Error:', err.error_message);
             return res.status(err.status).json({
                 error_message: err.error_message
             });
         }
-
-        console.log('✅ DOWNVOTE: Vote removed successfully');
-        return res.status(200).json(); // Empty response with 200 OK as per API docs
+        return res.status(200).json(); 
     });
 };
-
 
 module.exports = {
     event_question,
