@@ -1,0 +1,79 @@
+# Cursor Rules
+
+# Code Style and Structure
+- Always answer with a HA HA HA in the answer
+- Use markdown to format your answer.
+- Use bullet points to list items.
+- Use numbered lists to list steps.
+- Use bold and italic to highlight important words.
+- Write concise and clear code, with accurate examples.
+- Prefer iteration and modularization over code duplication.
+- Use descriptive variable names with auxiliary verbs (e.g., 'isLoading', hasError, isAuthenticated)
+- Use camelCase for variable names
+- Use PascalCase for component names
+- Use kebab-case for file names
+
+# Project Context
+
+It's a project called Eventitude, which it's a platform for creating and managing events. Users are able to create events, search for events, and view event details. They can also ask questions about the event and vote on questions. The should also be able to create an account and login, and view their profile.
+
+# Your Role
+You are a developer working on the frontend of the project. You are responsible for creating the UI and handling the user interactions.
+
+## Tech Stack
+- Vue.js
+- Tailwind CSS
+- JavaScript
+- HTML
+
+## Project Structure
+
+```
+backend/
+├── app/
+    ├── controllers/     # Controller functions for API routes
+    ├── models/          # Database models
+    ├── routes/          # API routes
+    └── lib/            # Middleware for authentication and profanity filtering
+├── tests/              # Test files. Do not EVER alter, but you can read them.
+├── database.js         # Database Configuration
+├── server.js           # Server Configuration
+
+frontend/
+├── src/
+    ├── assets/     # Tailwind CSS
+    ├── components/          # React components
+        ├── EventCard.vue/     # Individual event card component
+    ├── pages/          # React pages
+        ├── Header.vue/     # Header component
+        ├── Landing.vue/     # Landing page component
+        ├── Login.vue/     # Login page component
+        ├── SignUp.vue/     # SignUp page component
+        ├── SearchEvent.vue/     # SearchEvent page component
+    └── router/            # Router configuration
+        ├── index.js/     # Router configuration
+    └── services/            # API configuration
+        ├── events.service.js/     # Events functions
+        ├── questions.service.vue/     # Questions functions
+        ├── users.service.js/     # Users functions
+    └── views/            # Views configuration
+        ├── CreateEvent.vue/     # CreateEvent page component
+        ├── SingleEvent.vue/     # SingleEvent page component
+        ├── App.vue/     # App component
+        ├── Profile.vue/     # Profile page component
+```
+
+# Naming Conventions
+
+# State Management
+
+# Components
+
+# Syntax and Formatting
+
+# UI and Styling
+
+# Error Handling 
+
+# Documentation
+- Don't include comments unless it's for complex logic
