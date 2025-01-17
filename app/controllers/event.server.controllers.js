@@ -50,16 +50,30 @@ const create_event = (req, res) => {
             .custom((value, helpers) => {
                 const regClose = parseInt(value);
                 const startTime = parseInt(helpers.state.ancestors[0].start);
+                const minimumGap = 14 * 24 * 60 * 60 * 1000; // 14 days in milliseconds
+                
+                console.log('Validating registration close:', {
+                    regClose,
+                    startTime,
+                    minimumGap,
+                    difference: startTime - regClose
+                });
                 
                 if (regClose >= startTime) {
                     return helpers.error('custom.registrationClose');
                 }
+                
+                if (startTime - regClose < minimumGap) {
+                    return helpers.error('custom.minimumGap');
+                }
+                
                 return value;
             })
             .messages({
                 'string.pattern.base': 'Registration close time must be a valid timestamp',
                 'any.required': 'Registration close time is required',
-                'custom.registrationClose': 'Registration must close before event starts'
+                'custom.registrationClose': 'Registration must close before event starts',
+                'custom.minimumGap': 'Registration must close at least 14 days before the event'
             }),
         max_attendees: Joi.number()
             .integer()
@@ -77,35 +91,7 @@ const create_event = (req, res) => {
                 'array.base': 'Categories must be an array',
                 'number.base': 'Category IDs must be numbers'
             })
-    })
-    .required()
-    .unknown(false)
-    .messages({
-        'object.unknown': 'Invalid property provided'
     });
-
-    // Check start time is in the future
-    const currentTime = Date.now();
-    if (req.body.start <= currentTime) {
-        return res.status(400).json({
-            error_message: 'Event start time must be in the future'
-        });
-    }
-
-    // Check close_registration is before start
-    if(req.body.start <= req.body.close_registration){
-        return res.status(400).send({
-            error_message: 'Registration close time must be before event start time'
-        });
-    }
-
-    // Check authentication
-    const token = req.headers['x-authorization'];
-    if (!token) {
-        return res.status(401).json({
-            error_message: 'Unauthorized'
-        });
-    }
 
     // Validate input
     const { error } = eventSchema.validate(req.body);
@@ -117,8 +103,6 @@ const create_event = (req, res) => {
 
     // Create event object from validated request body
     const event = {
-        // Add profanity filter to the name of the event
-
         name: cleanText(req.body.name),
         description: cleanText(req.body.description),
         location: req.body.location,
@@ -138,7 +122,6 @@ const create_event = (req, res) => {
                 error_message: 'Failed to create event'
             });
         }
-        
         return res.status(201).json({
             event_id: result.event_id
         });
@@ -513,6 +496,7 @@ const search_event = (req, res) => {
     const searchParams = {
         q: req.query.q || '',
         status: req.query.status,
+        categories: req.query.categories ? req.query.categories.split(',').map(Number) : [],
         limit: limit,
         offset: offset
     };
@@ -524,6 +508,9 @@ const search_event = (req, res) => {
             .optional(),
         status: Joi.string()
             .valid('MY_EVENTS', 'ATTENDING', 'OPEN', 'ARCHIVE')
+            .optional(),
+        categories: Joi.array()
+            .items(Joi.number().integer().positive())
             .optional(),
         limit: Joi.number()
             .integer()

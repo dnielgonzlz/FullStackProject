@@ -416,8 +416,9 @@ const archiveEventInDB = (event_id, user_id, callback) => {
 };
 
 const searchEventsInDB = (params, user_id, callback) => {
+
     let sql = `
-        SELECT 
+        SELECT DISTINCT
             e.event_id,
             e.name,
             e.description,
@@ -433,6 +434,7 @@ const searchEventsInDB = (params, user_id, callback) => {
             ) as creator
         FROM events e
         JOIN users u ON e.creator_id = u.user_id
+        LEFT JOIN event_categories ec ON e.event_id = ec.event_id
         WHERE 1=1
     `;
     
@@ -440,8 +442,13 @@ const searchEventsInDB = (params, user_id, callback) => {
 
     // Add search term if provided
     if (params.q) {
-        sql += ` AND e.name LIKE ?`;
-        queryParams.push(`%${params.q}%`);
+        sql += ` AND (e.name LIKE ? OR e.description LIKE ? OR e.location LIKE ?)`;
+        queryParams.push(`%${params.q}%`, `%${params.q}%`, `%${params.q}%`);
+    }
+
+    // Add category filter if provided
+    if (params.categories && params.categories.length > 0) {
+        sql += ` AND ec.category_id IN (${params.categories.join(',')})`;
     }
 
     // Handle different status filters
@@ -486,7 +493,7 @@ const searchEventsInDB = (params, user_id, callback) => {
     }
 
     // Add pagination
-    sql += ` ORDER BY e.start DESC LIMIT ? OFFSET ?`;
+    sql += ` GROUP BY e.event_id ORDER BY e.start DESC LIMIT ? OFFSET ?`;
     queryParams.push(params.limit, params.offset);
 
     // Execute query
@@ -510,7 +517,6 @@ const searchEventsInDB = (params, user_id, callback) => {
             close_registration: row.close_registration,
             max_attendees: row.max_attendees
         }));
-
         return callback(null, events);
     });
 };
